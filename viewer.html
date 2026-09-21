@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clankback: {{TITLE}}</title>
+<style>
+{{CSS}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <button id="sideToggle" title="Show or hide the file list (b)">☰</button>
+    <span class="brand">clankback</span>
+    <span id="target"></span>
+    <span id="stats"></span>
+    <span class="grow"></span>
+    <button id="viewToggle" title="Switch between unified and split (v)">Split</button>
+    <button id="foldBtn" title="Collapse every thread to one line, or open them again">Collapse all</button>
+    <span class="sep"></span>
+    <button id="claudeBtn" title="Jump to the next unread item from Claude (] and [)">From Claude <b id="qcount">0</b></button>
+    <button id="summaryBtn" title="All comments in one list (s)">Comments <b id="ccount">0</b></button>
+    <span class="sep"></span>
+    <button id="sendBtn" class="primary" title="Send new comments to the clanker">Send to clanker</button>
+    <button id="finishBtn" title="End the review">Finish</button>
+  </header>
+  <div id="banner" hidden></div>
+  <div id="body">
+    <aside id="side">
+      <input id="filter" placeholder="Filter files (/)" autocomplete="off">
+      <ul id="filelist"></ul>
+    </aside>
+    <main id="main"></main>
+    <aside id="summary" hidden>
+      <div class="sumhead"><b>Comments</b><button id="closeSummary" title="Close (s)">×</button></div>
+      <div id="sumlist"></div>
+      <div class="sumfoot"><button id="sendBtn2" class="primary">Send to clanker</button></div>
+    </aside>
+  </div>
+  <div id="done" hidden><div><h2>Review finished</h2><p>Your comments are with Claude. You can close this tab.</p></div></div>
+  <div id="toast" hidden></div>
+  <div id="help" hidden>
+    <b>Keys</b>
+    <kbd>j</kbd> <kbd>k</kbd> hunk ·
+    <kbd>n</kbd> <kbd>p</kbd> file ·
+    <kbd>c</kbd> comment ·
+    <kbd>]</kbd> <kbd>[</kbd> from Claude ·
+    <kbd>v</kbd> split ·
+    <kbd>s</kbd> comments ·
+    <kbd>b</kbd> files ·
+    <kbd>/</kbd> filter ·
+    <kbd>Esc</kbd> close
+  </div>
+</div>
+<script>window.DATA = {{DATA}};</script>
+<script>
+{{JS}}
+</script>
+</body>
+</html>
