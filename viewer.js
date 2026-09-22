@@ -310,7 +310,7 @@ function mountThread(c) {
 function unmountThread(id) { const t = $('.thread[data-id="' + id + '"]'); if (!t) return; const cr = t.closest('tr.crow'); t.remove(); if (!cr.firstElementChild.children.length) cr.remove(); }
 const folded = new Set();  // thread ids shown as a one-line tab (page-local, not saved)
 function threadEl(c) {
-  const t = el('div', {class: 'thread' + (c.resolved ? ' resolved' : '') + (c.outdated ? ' outdated' : '') + (c.by === 'claude' ? ' claude' : ''), 'data-id': c.id});
+  const t = el('div', {class: 'thread' + (c.resolved ? ' resolved' : '') + (c.outdated ? ' outdated' : '') + (c.by === 'claude' ? ' claude' : '') + (waiting(c) ? ' waiting' : ''), 'data-id': c.id});
   if (folded.has(c.id)) {
     const n = 1 + (c.replies || []).length, first = c.text.split(/(?<=[.!?])\s|\n/)[0].slice(0, 120);
     t.classList.add('tab'); t.title = 'Expand thread';
@@ -372,6 +372,7 @@ async function send() {
   await api('/send'); toast('Sent to the clanker. Replies appear here as they arrive.');
 }
 const hasUnsent = c => (!c.sent && c.by !== 'claude') || (c.replies || []).some(r => r.by !== 'claude' && !r.sent);
+const waiting = c => { const last = (c.replies || []).length ? c.replies[c.replies.length - 1] : c; return !c.resolved && last.by !== 'claude' && !!last.sent; };  // the clanker has it
 async function sendThread(c) {  // one thread only; the top button sends everything
   await api('/send', {id: c.id}); toast('Sent this thread to the clanker.');
 }

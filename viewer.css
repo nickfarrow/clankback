@@ -111,6 +111,17 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .thread.outdated { border-color:rgba(240,115,124,.55); }
 .thread.claude { border-color:var(--accent-line); }
 .thread.resolved { opacity:.7; border-color:var(--add-line); }
+/* a thread the clanker is working on: a light sweeping around the frame */
+@property --ang { syntax:'<angle>'; inherits:false; initial-value:0deg; }
+.thread { position:relative; }
+.thread.waiting { border-color:transparent; }
+.thread.waiting::before, .thread.waiting::after { content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; padding:1px;
+  background:conic-gradient(from var(--ang), var(--border) 0 55%, #fff 80%, var(--border) 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude;
+  animation:sweep 6s linear infinite; }
+.thread.waiting::after { padding:3px; filter:blur(4px); opacity:.5; }
+@keyframes sweep { to { --ang:360deg; } }
+@media (prefers-reduced-motion: reduce) { .thread.waiting::before, .thread.waiting::after { animation:none; } }
 .thread.resolved .meta .res, .thread.tab.resolved .res { color:var(--add); }
 .thread.tab { display:flex; gap:5px; align-items:baseline; padding:2px 11px 2px 9px; font-size:11px; color:var(--muted); cursor:pointer; white-space:nowrap; }
 .thread.tab:hover { border-color:var(--muted); color:var(--fg); }
