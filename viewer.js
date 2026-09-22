@@ -159,7 +159,7 @@ function buildSidebar() {
   });
   let ta = 0, td = 0; files.forEach(f => { ta += f.adds; td += f.dels; });
   $('#stats').innerHTML = files.length + ' file' + (files.length === 1 ? '' : 's') + ' <span class="a">+' + ta + '</span> <span class="d">-' + td + '</span>';
-  $('#target').textContent = D.target;
+  $('#target').innerHTML = '<span>' + esc(D.target) + '</span>'; $('#target').title = D.target;
   $('#filter').oninput = e => { const q = e.target.value.toLowerCase(); $$('#filelist li').forEach(li => li.hidden = q && !files[+li.dataset.f].path.toLowerCase().includes(q)); };
 }
 function setViewed(i, on) {
