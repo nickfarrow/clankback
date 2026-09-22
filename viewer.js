@@ -314,16 +314,16 @@ function threadEl(c) {
   if (folded.has(c.id)) {
     const n = 1 + (c.replies || []).length, first = c.text.split(/(?<=[.!?])\s|\n/)[0].slice(0, 120);
     t.classList.add('tab'); t.title = 'Expand thread';
-    t.innerHTML = '▸ <span class="by">' + (c.by === 'claude' ? 'Claude' : 'You') + '</span> · ' + where(c) + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · resolved' : '') + '<span class="txt">' + esc(first) + '</span>';
+    t.innerHTML = '<span class="by">' + (c.by === 'claude' ? 'Claude' : 'You') + '</span> · ' + where(c) + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '<span class="txt">' + esc(first) + '</span><span class="car down" title="Expand thread"></span>';
     t.onclick = () => { folded.delete(c.id); mountThread(c); refreshCount(); };
     return t;
   }
   const cm = (text, meta, extra, cls) => '<div class="cmt' + (cls || '') + '"><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div><div class="txt">' + esc(text) + '</div></div>';
   const unsent = x => (x.sent ? '' : ' <span class="unsent">· unsent</span>') + (x === c && c.outdated ? ' <span class="out">· OUTDATED, line changed since</span>' : '');
-  const fold = '<button data-a="fold" title="Collapse thread">collapse</button>';
+  const fold = '<button data-a="fold" class="car up" title="Collapse thread"></button>';
   t.innerHTML = (c.by === 'claude'
-      ? cm(c.text, '<span class="by">Claude</span> · ' + where(c) + (c.resolved ? ' · resolved' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
-      : cm(c.text, '<span class="by">You</span> · ' + where(c) + (c.resolved ? ' · resolved' : '') + unsent(c), '<button data-a="edit">edit</button><button data-a="del">delete</button>' + fold)) +
+      ? cm(c.text, '<span class="by">Claude</span> · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
+      : cm(c.text, '<span class="by">You</span> · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : '') + unsent(c), '<button data-a="edit">edit</button><button data-a="del">delete</button>' + fold)) +
     (c.replies || []).map(r => r.by === 'claude' ? cm(r.text, '<span class="by">Claude</span>', '', ' claude') : cm(r.text, '<span class="by">You</span>' + unsent(r), '<button data-a="rdel" data-r="' + r.id + '">delete</button>')).join('') +
     '<div class="tfoot"><textarea placeholder="Reply…"></textarea><button class="small" data-a="reply">Reply</button><button class="small" data-a="resolve">' + (c.resolved ? 'Unresolve' : 'Resolve') + '</button></div>';
   t.onclick = e => {
@@ -351,7 +351,7 @@ function claudeThreads(unseenOnly) {
 }
 let navPos = -1;
 function nextFromClaude(dir) {
-  let list = claudeThreads(true); if (!list.length) { list = claudeThreads(false); if (!list.length) { toast('Nothing from Claude yet.'); return; } }
+  let list = claudeThreads(true); if (!list.length) { list = claudeThreads(false); if (!list.length) { toast('Nothing from clanker yet.'); return; } }
   navPos = (navPos + dir + list.length) % list.length; jumpToComment(list[navPos]);
 }
 function refreshCount() {
@@ -463,7 +463,7 @@ function buildSummary() {
   cs.forEach(c => {
     if (c.file !== cur) { cur = c.file; list.append(el('h4', null, esc(c.file))); }
     const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '')},
-      '<div class="where">' + (c.by === 'claude' ? 'Claude · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from Claude</span>' : '') + (c.outdated ? ' · OUTDATED' : '') + (c.resolved ? ' · resolved' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
+      '<div class="where">' + (c.by === 'claude' ? 'Claude · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.outdated ? ' · OUTDATED' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
       (c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + esc(c.text) + '</div>');
     it.onclick = () => jumpToComment(c); list.append(it);
   });
