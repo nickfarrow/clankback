@@ -425,7 +425,7 @@ def make_handler(rv):
                 prefs = load_json(os.path.join(STATE_DIR, 'prefs.json'), {})
                 prefs.update(body)
                 save_json(os.path.join(STATE_DIR, 'prefs.json'), prefs)
-            elif p in ('/comment', '/delete', '/viewed', '/send', '/finish', '/seen'):
+            elif p in ('/comment', '/viewed', '/send', '/finish', '/seen'):
                 with locked_state(rv.spath) as st:
                     if p == '/comment':
                         c = body['comment']
@@ -440,8 +440,6 @@ def make_handler(rv):
                             if 'seen' in o:
                                 r['seen'] = o['seen']
                         st['comments'][c['id']] = c
-                    elif p == '/delete':
-                        st['comments'].pop(body['id'], None)
                     elif p == '/viewed':
                         v = set(st.get('viewed', []))
                         (v.add if body['viewed'] else v.discard)(body['path'])
