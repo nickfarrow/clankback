@@ -327,7 +327,7 @@ class Review:
         self.lock = threading.Lock()
         self.finished = threading.Event()
         self.last_seen = self.bye_at = None
-        self.files, self.html, self.cache, self.fp = [], b'', {}, None
+        self.files, self.html, self.cache, self.fp, self.port = [], b'', {}, None, None
 
     def fingerprint(self):
         """Cheap change signal: mtimes of the files in the diff plus the git index."""
@@ -376,6 +376,11 @@ def make_handler(rv):
         def log_message(self, *a):
             pass
 
+        def _trusted(self):
+            """Only the page we served may talk to us: blocks DNS rebinding and cross-site POSTs from other tabs."""
+            own = '127.0.0.1:%d' % rv.port
+            return self.headers.get('Host') == own and self.headers.get('Origin') in (None, 'http://' + own)
+
         def _json(self, obj, code=200):
             b = json.dumps(obj).encode()
             self.send_response(code)
@@ -385,12 +390,17 @@ def make_handler(rv):
             self.wfile.write(b)
 
         def do_GET(self):
+            if not self._trusted():
+                return self._json({'error': 'forbidden'}, 403)
             u = urlparse(self.path)
             rv.last_seen = time.time()
             if u.path == '/':
                 rv.refresh()  # every (re)load shows the current diff and comments
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'")
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.send_header('Referrer-Policy', 'no-referrer')
                 self.send_header('Content-Length', str(len(rv.html)))
                 self.end_headers()
                 self.wfile.write(rv.html)
@@ -413,6 +423,8 @@ def make_handler(rv):
                 self._json({'error': 'not found'}, 404)
 
         def do_POST(self):
+            if not self._trusted():
+                return self._json({'error': 'forbidden'}, 403)
             n = int(self.headers.get('Content-Length') or 0)
             body = json.loads(self.rfile.read(n) or b'{}') if n else {}
             p = self.path
@@ -513,6 +525,7 @@ def serve(spath):
     rv = Review(spath, t, st['cwd'])
     rv.refresh()
     srv = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(rv))
+    rv.port = srv.server_address[1]
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     save_json(run_path(key), {'pid': os.getpid(), 'url': 'http://127.0.0.1:%d/' % srv.server_address[1]})
