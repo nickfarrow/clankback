@@ -9,8 +9,9 @@ the comments without you leaving the terminal.
 
 1. Run `/clankback` in Claude Code. The current diff opens in a browser tab.
 2. Comment on a line, or drag down the gutter to comment on a range.
-3. Click **Send to clanker**. Claude does the work, replies in the page, and resolves the thread.
-   Typing an answer and clicking **Resolve** sends straight away.
+3. Click **Send to clanker** to send everything, or **Send** on one thread to send just that.
+   Claude does the work, replies in the page, and resolves the thread.
+   Typing an answer and clicking **Resolve** sends that thread straight away.
 4. Claude can also ask you a question at a line. Answer it in the page and send again.
 5. Click **Finish** when you are done.
 

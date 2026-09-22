@@ -454,6 +454,10 @@ def make_handler(rv):
                         st['send_seq'] = st.get('send_seq', 0) + 1
                         if p == '/finish':
                             st['finish_requested'] = True
+                        if p == '/send' and body.get('id'):  # one thread's Send button
+                            st.setdefault('send_ids', []).append(body['id'])
+                        else:
+                            st['send_all'] = True
                 if p == '/finish':
                     rv.finished.set()
             else:
@@ -575,9 +579,9 @@ def indent(text, pad='  '):
     return '\n'.join(pad + l for l in text.rstrip().split('\n'))
 
 
-def report(st, desc):
+def report(st, desc, only=None):
     """Print what the user sent this round (unsent comments and unsent replies) and mark it sent."""
-    comments = list(st['comments'].values())
+    comments = [c for c in st['comments'].values() if only is None or c['id'] in only]
     order = {f['path']: i for i, f in enumerate(st.get('files', []))}
     fresh = [c for c in comments if not c.get('sent') or any(not r.get('sent') for r in c.get('replies', []))
              or (c.get('by') == 'claude' and c.get('resolved') and not c.get('resolved_sent'))]
@@ -618,7 +622,8 @@ def wait_for_round(spath, key, desc):
         if st.get('send_seq', 0) != st.get('ack_seq', 0):
             with locked_state(spath) as st:
                 st['ack_seq'] = st['send_seq']
-                out = report(st, desc)
+                only = None if st.pop('send_all', False) else set(st.pop('send_ids', []))
+                out = report(st, desc, only)
                 if st.get('finish_requested'):
                     st['status'] = 'finished'
                     out += '\n\nReview finished. The user closed it, so there are no more rounds.'

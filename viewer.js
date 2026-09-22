@@ -325,11 +325,13 @@ function threadEl(c) {
       ? cm(c.text, '<span class="by">Claude</span> · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
       : cm(c.text, '<span class="by">You</span> · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : '') + unsent(c), fold)) +
     (c.replies || []).map(r => r.by === 'claude' ? cm(r.text, '<span class="by">Claude</span>', '', ' claude') : cm(r.text, '<span class="by">You</span>' + unsent(r))).join('') +
-    '<div class="tfoot"><textarea placeholder="Reply…"></textarea><button class="small" data-a="reply">Reply</button><button class="small" data-a="resolve">' + (c.resolved ? 'Unresolve' : 'Resolve') + '</button></div>';
+    '<div class="tfoot"><textarea placeholder="Reply…"></textarea><button class="small" data-a="reply">Reply</button><button class="small" data-a="resolve">' + (c.resolved ? 'Unresolve' : 'Resolve') + '</button>' +
+    (hasUnsent(c) ? '<button class="small primary" data-a="send" title="Send this thread to the clanker now">Send</button>' : '') + '</div>';
   t.onclick = e => {
     const a = e.target.dataset.a; if (!a) return;
     if (a === 'fold') { folded.add(c.id); mountThread(c); refreshCount(); }
-    else if (a === 'resolve') { const ta = t.querySelector('.tfoot textarea'), msg = ta.value.trim(); if (msg) (c.replies = c.replies || []).push({id: uid(), text: msg, created: Date.now() / 1000, by: 'you'}); c.resolved = !c.resolved; const p = save(c); if (msg) p.then(send); }
+    else if (a === 'resolve') { const ta = t.querySelector('.tfoot textarea'), msg = ta.value.trim(); if (msg) (c.replies = c.replies || []).push({id: uid(), text: msg, created: Date.now() / 1000, by: 'you'}); c.resolved = !c.resolved; const p = save(c); if (msg) p.then(() => sendThread(c)); }
+    else if (a === 'send') { e.target.disabled = true; e.target.textContent = 'Sent'; sendThread(c); }
     else if (a === 'reply') { const ta = t.querySelector('.tfoot textarea'); if (!ta.value.trim()) return; (c.replies = c.replies || []).push({id: uid(), text: ta.value.trim(), created: Date.now() / 1000, by: 'you'}); save(c); }
   };
   t.querySelector('.tfoot textarea').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) t.querySelector('[data-a="reply"]').click(); };
@@ -368,6 +370,10 @@ function foldAll() {  // collapse every thread to a tab; when all are tabs, expa
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(t._t); t._t = setTimeout(() => t.hidden = true, 2500); }
 async function send() {
   await api('/send'); toast('Sent to the clanker. Replies appear here as they arrive.');
+}
+const hasUnsent = c => (!c.sent && c.by !== 'claude') || (c.replies || []).some(r => r.by !== 'claude' && !r.sent);
+async function sendThread(c) {  // one thread only; the top button sends everything
+  await api('/send', {id: c.id}); toast('Sent this thread to the clanker.');
 }
 async function poll() {  // pick up replies and resolves made from the terminal
   let r; try { r = await (await fetch('/state')).json(); } catch (e) { return; }
