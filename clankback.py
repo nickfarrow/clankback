@@ -59,7 +59,15 @@ def resolve_target(opts, pos, paths, cwd):
             t.update(mode='files', files=[os.path.abspath(p) for p in pos], names=list(pos), desc='%s vs %s' % (pos[0], pos[1]))
             return t
     if not root:
-        die('Not inside a git repository. Give two files to compare, or run inside a repo.')
+        fresh = pos + paths  # outside a repo, review the given files/dirs as new, against an empty baseline
+        if not fresh:
+            die('Not inside a git repository. Give paths to review as new files, or two files to compare.')
+        for p in fresh:
+            if not os.path.exists(os.path.join(cwd, p)):
+                die('No such path: %s' % p)
+        rel = [os.path.relpath(os.path.join(cwd, p), cwd) for p in fresh]
+        t.update(mode='fresh', root=cwd, paths=[], files=rel, desc='%s vs empty' % ' '.join(rel))
+        return t
     t['root'] = root
     for p in pos:
         if os.path.exists(p):
@@ -91,11 +99,22 @@ def head_or_empty(cwd):
     return 'HEAD' if run(GIT + ['rev-parse', '--verify', '--quiet', 'HEAD'], cwd).returncode == 0 else EMPTY_TREE
 
 
+def new_file_diff(path, cwd, common):
+    """A 'new file' patch for a file or directory that has no baseline."""
+    base = '/dev/null'
+    if os.path.isdir(os.path.join(cwd, path)):
+        base = os.path.join(STATE_DIR, 'empty')
+        os.makedirs(base, exist_ok=True)
+    return run(GIT + ['diff', '--no-index'] + common + ['--', base, path], cwd).stdout
+
+
 def produce_diff(t, cwd):
     common = ['--no-color', '--no-ext-diff', '-M', '-U3']
     pathargs = (['--'] + t['paths']) if t['paths'] else []
     if t['mode'] == 'files':
         return run(GIT + ['diff', '--no-index'] + common + ['--'] + t['files'], cwd).stdout
+    if t['mode'] == 'fresh':
+        return ''.join(new_file_diff(p, cwd, common) for p in t['files'])
     if t['mode'] == 'pr':
         r = run(['gh', 'pr', 'diff', str(t['pr'])], cwd)
         if r.returncode != 0:
@@ -110,7 +129,9 @@ def produce_diff(t, cwd):
         t['base'] = mb or t['ref']  # a bare tree (e.g. the empty tree) has no merge-base
     else:
         t['base'] = head_or_empty(cwd)
-    return run(GIT + ['diff'] + common + [t['base']] + pathargs, cwd).stdout
+    out = run(GIT + ['diff'] + common + [t['base']] + pathargs, cwd).stdout
+    untracked = run(GIT + ['ls-files', '--others', '--exclude-standard', '--full-name', '-z'] + pathargs, cwd).stdout
+    return out + ''.join(new_file_diff(p, t['root'], common) for p in untracked.split('\0') if p)
 
 
 # ---------------------------------------------------------------- diff parser

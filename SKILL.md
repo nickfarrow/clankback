@@ -1,6 +1,6 @@
 ---
 name: clankback
-description: Review a local diff in the browser like a GitHub pull request and iterate on the comments from here. Usage /clankback [--staged] [<ref> | <PR#> | <file-a> <file-b>] [<path>...] [--resume] [--discard]
+description: Review a local diff in the browser like a GitHub pull request and iterate on the comments from here. Usage /clankback [--staged] [<ref> | <PR#> | <file-a> <file-b>] [<path>...] (outside a repo: <path>... reviewed as new files) [--resume] [--discard]
 disable-model-invocation: false
 allowed-tools: Bash(python3 ~/.claude/skills/clankback/clankback.py *)
 ---

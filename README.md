@@ -34,6 +34,9 @@ It needs python3 and git. `gh` is only needed to review a GitHub pull request.
 | `/clankback 1234` | GitHub pull request 1234 |
 | `/clankback old.py new.py` | two files anywhere on disk |
 | `/clankback src/ docs/` | any of the above, narrowed to those paths |
+| `/clankback src/` outside a repo | the files under `src/` as new files, against an empty baseline |
+
+Inside a repo, untracked files that are not ignored show as new files too.
 
 `--resume` reopens the last review you left pending. `--discard` throws it away.
 
@@ -44,7 +47,7 @@ It needs python3 and git. `gh` is only needed to review a GitHub pull request.
 | `j` `k` | next, previous hunk |
 | `n` `p` | next, previous file |
 | `c` | comment on the focused line |
-| `]` `[` | next, previous item from Claude |
+| `]` `[` | next, previous item from clanker |
 | `v` | split or unified |
 | `s` | the comment list |
 | `b` | the file list |
