@@ -331,7 +331,7 @@ function threadEl(c) {
     if (a === 'fold') { folded.add(c.id); mountThread(c); refreshCount(); }
     else if (a === 'del') { if (!confirm('Delete this comment thread?')) return; delete comments[c.id]; unmountThread(c.id); api('/delete', {id: c.id}); refreshCount(); }
     else if (a === 'rdel') { c.replies = c.replies.filter(r => r.id !== e.target.dataset.r); save(c); }
-    else if (a === 'resolve') { const ta = t.querySelector('.tfoot textarea'); if (ta.value.trim()) (c.replies = c.replies || []).push({id: uid(), text: ta.value.trim(), created: Date.now() / 1000, by: 'you'}); c.resolved = !c.resolved; save(c); }
+    else if (a === 'resolve') { const ta = t.querySelector('.tfoot textarea'), msg = ta.value.trim(); if (msg) (c.replies = c.replies || []).push({id: uid(), text: msg, created: Date.now() / 1000, by: 'you'}); c.resolved = !c.resolved; const p = save(c); if (msg) p.then(send); }
     else if (a === 'reply') { const ta = t.querySelector('.tfoot textarea'); if (!ta.value.trim()) return; (c.replies = c.replies || []).push({id: uid(), text: ta.value.trim(), created: Date.now() / 1000, by: 'you'}); save(c); }
     else if (a === 'edit') { const txt = t.querySelector('.cmt .txt'); const ta = el('textarea'); ta.value = c.text; txt.replaceWith(ta); ta.focus(); ta.onblur = () => { c.text = ta.value.trim() || c.text; save(c); }; }
   };
@@ -339,7 +339,7 @@ function threadEl(c) {
   t.addEventListener('mouseenter', () => markSeen(c), {once: true});
   return t;
 }
-function save(c) { comments[c.id] = c; mountThread(c); api('/comment', {comment: c}); refreshCount(); if (!$('#summary').hidden) buildSummary(); }
+function save(c) { comments[c.id] = c; mountThread(c); const p = api('/comment', {comment: c}); refreshCount(); if (!$('#summary').hidden) buildSummary(); return p; }
 const unseenIn = c => [c].concat(c.replies || []).filter(x => x.by === 'claude' && x.seen === false);
 function markSeen(c) {
   const ids = unseenIn(c).map(x => x.id); if (!ids.length) return;

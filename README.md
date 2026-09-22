@@ -10,6 +10,7 @@ the comments without you leaving the terminal.
 1. Run `/clankback` in Claude Code. The current diff opens in a browser tab.
 2. Comment on a line, or drag down the gutter to comment on a range.
 3. Click **Send to clanker**. Claude does the work, replies in the page, and resolves the thread.
+   Typing an answer and clicking **Resolve** sends straight away.
 4. Claude can also ask you a question at a line. Answer it in the page and send again.
 5. Click **Finish** when you are done.
 
@@ -62,5 +63,5 @@ Claude edits.
 
 One Python file, standard library only. `clankback.py` starts a small server on localhost and serves
 a single page to it. Review state lives in `~/.cache/clankback`, which is what lets a review survive
-a closed tab. Claude answers from the terminal with `clankback.py reply <id>`, `resolve <id>`,
+a closed tab. Claude answers from the terminal with `clankback.py reply <id>`, `resolve <id>`, `unresolve <id>`,
 `ask <path>:<line>` and `show <id>`, and each one appears in the page within a couple of seconds.

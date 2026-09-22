@@ -13,6 +13,9 @@ The review is a loop between the user's browser and this terminal. `CB=~/.claude
        python3 $CB reply <id> "<one short line: what you did, or the answer>"
        python3 $CB resolve <id>... ["note"]  once it is fully addressed (note optional)
    If something is unclear, ask in the reply and leave it unresolved.
+   A thread marked (resolved) that carries a new reply still needs acting on: the user
+   resolved it while answering. Do the work and leave it resolved; if it turns out to
+   need more from the user, reopen it:  python3 $CB unresolve <id> and ask in a reply.
    Ask liberally. When something needs the user's decision, or you want to flag a line, put it
    at the line, not in the terminal:  python3 $CB ask <path>:<line> "question or note"
    The user answers in the page, and it comes back in the next round like any other thread.
