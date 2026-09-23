@@ -21,13 +21,17 @@ async function reloadDiff() {  // the working tree changed: re-render in place, 
   let r; try { r = await (await fetch('/data')).json(); } catch (e) { return; }
   if (!r || !r.files) return;
   diffRev = r.diff_rev;
-  const main = $('#main'), top = main.scrollTop, drafts = {};
+  const main = $('#main'), top = main.scrollTop, drafts = {}, act = document.activeElement;
+  const actId = act && act.tagName === 'TEXTAREA' && act.closest('.thread') ? act.closest('.thread').dataset.id : null, sel = actId && [act.selectionStart, act.selectionEnd];
   $$('.thread').forEach(t => { const ta = t.querySelector('.tfoot textarea'); if (ta && ta.value) drafts[t.dataset.id] = ta.value; });
+  const keep = composer && {...composerAt, text: composer.querySelector('textarea').value}; composer = composerAt = null;
   const wasRendered = new Set(rendered);
   files.splice(0, files.length, ...r.files); rendered.clear();
   buildSidebar(); buildFiles();
   wasRendered.forEach(i => { if (i < files.length) renderFile(i); });
   for (const id in drafts) { const ta = $('.thread[data-id="' + id + '"] .tfoot textarea'); if (ta) ta.value = drafts[id]; }
+  if (actId) { const ta = $('.thread[data-id="' + actId + '"] .tfoot textarea'); if (ta) { ta.focus(); ta.setSelectionRange(sel[0], sel[1]); } }
+  if (keep) reopenComposer(keep);
   main.scrollTop = top; refreshCount(); if (!$('#summary').hidden) buildSummary();
   toast('The files changed on disk. Diff reloaded.');
 }
@@ -382,16 +386,17 @@ async function poll() {  // pick up replies and resolves made from the terminal
   let changed = false, fresh = null;
   for (const id in r.comments) {
     if (JSON.stringify(r.comments[id]) !== JSON.stringify(comments[id])) {
-      const old = $('.thread[data-id="' + id + '"] .tfoot textarea'), draft = old && old.value;
+      const old = $('.thread[data-id="' + id + '"] .tfoot textarea'), draft = old && old.value, had = old && document.activeElement === old && [old.selectionStart, old.selectionEnd];
       const before = comments[id] ? unseenIn(comments[id]).length : 0;
       comments[id] = r.comments[id]; mountThread(comments[id]); changed = true;
       if (!fresh && unseenIn(comments[id]).length > before) fresh = comments[id];
       const nw = $('.thread[data-id="' + id + '"] .tfoot textarea'); if (nw && draft) nw.value = draft;
+      if (nw && had) { nw.focus(); nw.setSelectionRange(had[0], had[1]); }
     }
   }
   for (const id in comments) if (!r.comments[id]) { delete comments[id]; unmountThread(id); changed = true; }
   if (changed) { refreshCount(); if (!$('#summary').hidden) buildSummary(); }
-  if (fresh && !$('.pointed')) jumpToComment(fresh);
+  if (fresh && !$('.pointed') && !typing()) jumpToComment(fresh);  // never yank the page while the user types
   if (r.diff_rev && diffRev && r.diff_rev !== diffRev) await reloadDiff();
   if (r.focus && r.focus.seq !== focusSeq) { focusSeq = r.focus.seq; showFocus(r.focus); }
   if (r.status === 'finished' && !finished) { finished = true; $('#done').hidden = false; }
@@ -406,17 +411,28 @@ function showFocus(f) {  // terminal asked us to scroll somewhere
   point(target);
 }
 
-let composer = null;
-function openComposer(fi, hi, li, endLi, side) {
+let composer = null, composerAt = null;
+const typing = () => { const a = document.activeElement; return !!a && a.tagName === 'TEXTAREA'; };
+function reopenComposer(k) {  // after a diff reload: same hunk if it survived, else the same line number, else the draft is toasted
+  let hi = hunkIndex(k.fi, k.hash), li = k.li, endLi = k.endLi;
+  if (hi < 0 && k.fi < files.length) {
+    const col = k.side === 'new' ? 3 : 2;
+    files[k.fi].hunks.some((h, i) => { const j = h.lines.findIndex(l => l[col] === k.line); if (j >= 0) { hi = i; li = endLi = j; return true; } });
+  }
+  if (hi >= 0) openComposer(k.fi, hi, li, endLi, k.side, k.text);
+  else if (k.text) toast('The lines you were commenting on changed. Your draft: ' + k.text);
+}
+function openComposer(fi, hi, li, endLi, side, draft) {
   closeComposer();
   const h = files[fi].hunks[hi], a = Math.min(li, endLi), b = Math.max(li, endLi);
   const tr = rowFor(fi, hi, b); if (!tr) return;
   const ln = i => { const l = h.lines[i]; return l[3] ?? l[2]; };
+  composerAt = {fi, hi, li, endLi, side, hash: h.hash, line: ln(a)};
   const rng = side + ' L' + (a === b ? ln(a) : ln(a) + '–' + ln(b));
   const cr = commentRowAfter(tr);
   composer = el('div', {class: 'composer'}, '<div class="rng">Comment on ' + rng + '</div><div class="row"><textarea placeholder="Leave a comment… (Ctrl+Enter to save)"></textarea><button class="small primary" data-a="save">Add comment</button><button class="small" data-a="cancel">Cancel</button></div>');
   cr.firstElementChild.prepend(composer);
-  const ta = composer.querySelector('textarea'); ta.focus();
+  const ta = composer.querySelector('textarea'); if (draft) ta.value = draft; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   const submit = () => {
     const text = ta.value.trim(); if (!text) return;
     const c = {id: uid(), file: files[fi].path, hunk: h.hash, offset: a, end_offset: a === b ? null : b, side, line: ln(a), end_line: a === b ? null : ln(b),
@@ -428,7 +444,7 @@ function openComposer(fi, hi, li, endLi, side) {
   ta.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); if (e.key === 'Escape') closeComposer(); e.stopPropagation(); };
   clearSel();
 }
-function closeComposer() { if (!composer) return; const cr = composer.closest('tr.crow'); composer.remove(); composer = null; if (cr && !cr.firstElementChild.children.length) cr.remove(); }
+function closeComposer() { if (!composer) return; const cr = composer.closest('tr.crow'); composer.remove(); composer = composerAt = null; if (cr && !cr.firstElementChild.children.length) cr.remove(); }
 function clearSel() { $$('tr.sel').forEach(r => r.classList.remove('sel')); }
 
 // gutter click / drag
