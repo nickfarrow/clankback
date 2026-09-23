@@ -1,6 +1,6 @@
 :root {
   --bg:#0f1116; --panel:#161922; --panel2:#1d212b; --border:#282d39; --fg:#e7ebf2; --muted:#8a93a5;
-  --accent:#6ea8fe; --accent-bg:rgba(110,168,254,.15); --accent-line:rgba(110,168,254,.45); --add-line:rgba(91,204,139,.5);
+  --accent:#6ea8fe; --accent-bg:rgba(110,168,254,.15); --accent-line:rgba(110,168,254,.45); --add-line:rgba(91,204,139,.5); --warn-line:rgba(227,179,65,.6);
   --add:#5bcc8b; --del:#f0737c;
   --add-bg:rgba(91,204,139,.10); --add-bg2:rgba(91,204,139,.30);
   --del-bg:rgba(240,115,124,.10); --del-bg2:rgba(240,115,124,.30);
@@ -108,8 +108,8 @@ tr.crow td { padding:8px 14px 10px 56px !important; background:var(--panel); bor
 tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bottom:3px !important; }
 .thread { max-width:820px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg); overflow:hidden; }
 .thread + .thread { margin-top:5px; }
-.thread.outdated { border-color:rgba(240,115,124,.55); }
 .thread.claude { border-color:var(--accent-line); }
+.thread.outdated:not(.resolved) { border-color:var(--warn-line); }
 .thread.resolved { opacity:.7; border-color:var(--add-line); }
 /* a thread the clanker is working on: a light sweeping around the frame */
 @property --ang { syntax:'<angle>'; inherits:false; initial-value:0deg; }
@@ -134,7 +134,7 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .cmt .meta .grow { flex:1; }
 .cmt .meta .by { font-weight:600; color:var(--fg); }
 .cmt .meta .q, .cmt .meta .unsent { color:var(--accent); }
-.cmt .meta .out { color:var(--del); }
+.cmt .meta .out { color:var(--muted); }
 .cmt .meta button { padding:0 3px; font-size:11px; }
 .car { flex:none; align-self:center; width:18px; height:16px; padding:0; display:inline-flex; align-items:center; justify-content:center; color:var(--muted); cursor:pointer; }
 .car::before { content:''; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:translateY(-2px) rotate(45deg); }
@@ -163,7 +163,7 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .sumitem .where { font-family:var(--font); font-size:11px; color:var(--muted); }
 .sumitem .where .q { color:var(--accent); }
 .sumitem .txt { white-space:pre-wrap; word-break:break-word; margin-top:3px; }
-.sumitem.outdated .where { color:var(--del); }
+.sumitem.outdated:not(.resolved) { border-color:var(--warn-line); }
 .sumfoot { padding:10px 12px; border-top:1px solid var(--border); }
 
 /* overlays */
