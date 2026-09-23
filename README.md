@@ -1,7 +1,7 @@
 # clankback
 
 Review a local diff in your browser the way you would review a pull request, and let Claude act on
-the comments without you leaving the terminal.
+the comments without switching back and forth between the document and the terminal.
 
 ![The clankback viewer, with a comment thread open on a changed line](screenshot.png)
 
