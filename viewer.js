@@ -376,7 +376,7 @@ async function send() {
   await api('/send'); toast('Sent to the clanker. Replies appear here as they arrive.');
 }
 const hasUnsent = c => (!c.sent && c.by !== 'claude') || (c.replies || []).some(r => r.by !== 'claude' && !r.sent);
-const waiting = c => { const last = (c.replies || []).length ? c.replies[c.replies.length - 1] : c; return !c.resolved && last.by !== 'claude' && !!last.sent; };  // the clanker has it
+const waiting = c => { const last = (c.replies || []).length ? c.replies[c.replies.length - 1] : c; return last.by !== 'claude' && !!last.sent; };  // the clanker has it, resolved or not
 async function sendThread(c) {  // one thread only; the top button sends everything
   await api('/send', {id: c.id}); toast('Sent this thread to the clanker.');
 }

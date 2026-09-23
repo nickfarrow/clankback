@@ -42,6 +42,10 @@ Inside a repo, untracked files that are not ignored show as new files too.
 
 `--resume` reopens the last review you left pending. `--discard` throws it away.
 
+Colours: a thread's border is its state. Blue is a question from Claude waiting on you, green is
+resolved, yellow is outdated and still open. White is the clanker: a light sweeps around a thread
+it is working on, and a thread flashes white when it answers or points at a line.
+
 ## In the page
 
 | Key | |
