@@ -414,7 +414,7 @@ function openComposer(fi, hi, li, endLi, side) {
   const ln = i => { const l = h.lines[i]; return l[3] ?? l[2]; };
   const rng = side + ' L' + (a === b ? ln(a) : ln(a) + '–' + ln(b));
   const cr = commentRowAfter(tr);
-  composer = el('div', {class: 'composer'}, '<div class="rng">Comment on ' + rng + '</div><textarea placeholder="Leave a comment… (Ctrl+Enter to save)"></textarea><div class="btns"><button class="primary" data-a="save">Add comment</button><button data-a="cancel">Cancel</button></div>');
+  composer = el('div', {class: 'composer'}, '<div class="rng">Comment on ' + rng + '</div><div class="row"><textarea placeholder="Leave a comment… (Ctrl+Enter to save)"></textarea><button class="small primary" data-a="save">Add comment</button><button class="small" data-a="cancel">Cancel</button></div>');
   cr.firstElementChild.prepend(composer);
   const ta = composer.querySelector('textarea'); ta.focus();
   const submit = () => {

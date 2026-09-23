@@ -146,7 +146,8 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .tfoot textarea { min-height:34px; flex:1; }
 .composer { max-width:820px; }
 .composer .rng { color:var(--muted); font-size:11px; margin-bottom:5px; }
-.composer .btns { display:flex; gap:6px; margin-top:7px; }
+.composer .row { display:flex; gap:6px; align-items:flex-start; }
+.composer .row textarea { min-height:34px; flex:1; }
 
 /* summary panel */
 #summary { width:340px; flex:none; border-left:1px solid var(--border); background:var(--panel); display:flex; flex-direction:column; }
