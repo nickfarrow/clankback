@@ -647,7 +647,7 @@ def wait_for_round(spath, key, desc):
                 st['ack_seq'] = st['send_seq']
                 only = None if st.pop('send_all', False) else set(st.pop('send_ids', []))
                 out = report(st, desc, only)
-                if st.get('finish_requested'):
+                if st.pop('finish_requested', False):  # consumed here, so a reopened review does not finish itself on the next Send
                     st['status'] = 'finished'
                     out += '\n\nReview finished. The user closed it, so there are no more rounds.'
             return out
@@ -808,7 +808,7 @@ def main(argv):
             return
         with locked_state(spath) as st:
             resumed = st.get('status') if st.get('comments') else None
-            st.update(status='pending', cwd=cwd, argv=[a for a in argv if a != '--resume'], target=t['desc'], key=key, t=t, created=st.get('created', time.time()))
+            st.update(status='pending', finish_requested=False, cwd=cwd, argv=[a for a in argv if a != '--resume'], target=t['desc'], key=key, t=t, created=st.get('created', time.time()))
         info = spawn_daemon(spath, key)
         open_browser(info['url'])
         if resumed:
