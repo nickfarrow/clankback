@@ -40,7 +40,7 @@ It needs python3 and git. `gh` is only needed to review a GitHub pull request.
 
 Inside a repo, untracked files that are not ignored show as new files too.
 
-`--resume` reopens the last review you left pending. `--discard` throws it away.
+`--resume` reopens the latest review left pending in the current directory; `--resume <target>` reopens that review even after Finish. `--discard` throws one away.
 
 Colours: a thread's border is its state. Blue is a question from Claude waiting on you, green is
 resolved, yellow is outdated and still open. White is the clanker: a light sweeps around a thread

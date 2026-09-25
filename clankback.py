@@ -774,15 +774,18 @@ def main(argv):
         return cmd_ask(argv[1:])
     opts, pos, paths = parse_args(argv)
     cwd = os.getcwd()
-    if opts['resume']:
+    if opts['resume'] and not (pos or paths):  # bare --resume: the latest pending review here, else anywhere
         pend = pending_reviews()
+        pend = [p for p in pend if p.get('cwd') == cwd] or pend
         if not pend:
-            die('No pending review to resume.')
+            die('No pending review to resume. Re-running a review\'s own command reopens it, finished or not.')
         cwd = pend[0]['cwd']
         opts, pos, paths = parse_args([a for a in pend[0]['argv'] if a != '--resume'])
     t = resolve_target(opts, pos, paths, cwd)
     key = hashlib.sha1('|'.join([t['root'] or '', t['mode'], json.dumps([t['paths'], t['ref'], t['pr'], t['files']])]).encode()).hexdigest()[:16]
     spath = state_path(key)
+    if opts['resume'] and not os.path.exists(spath):  # --resume <target>: only an existing review, pending or finished
+        die('No saved review for %s. Run without --resume to start one.' % t['desc'])
     if opts['discard']:
         info = run_info(key)
         if info:
@@ -800,12 +803,12 @@ def main(argv):
             print('No changes to review (%s).' % t['desc'])
             return
         with locked_state(spath) as st:
-            resumed = st.get('status') == 'pending' and st['comments']
-            st.update(status='pending', cwd=cwd, argv=argv, target=t['desc'], key=key, t=t, created=st.get('created', time.time()))
+            resumed = st.get('status') if st.get('comments') else None
+            st.update(status='pending', cwd=cwd, argv=[a for a in argv if a != '--resume'], target=t['desc'], key=key, t=t, created=st.get('created', time.time()))
         info = spawn_daemon(spath, key)
         open_browser(info['url'])
         if resumed:
-            notes.append('Resumed pending review with %d comment%s.' % (len(st['comments']), '' if len(st['comments']) == 1 else 's'))
+            notes.append('%s review with %d comment%s.' % ('Reopened finished' if resumed == 'finished' else 'Resumed pending', len(st['comments']), '' if len(st['comments']) == 1 else 's'))
         for p in pending_reviews():
             if p.get('key') != key:
                 notes.append('Also pending: %s in %s (%d comments). `--resume` reopens the most recent.' % (p.get('target'), p.get('cwd'), len(p.get('comments', {}))))
