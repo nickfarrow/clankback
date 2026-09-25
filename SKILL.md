@@ -33,3 +33,6 @@ Keep the terminal to one line per round, e.g. "Round 2: addressed 3 comments in 
 The user reads the details in the page. Always say in one line when the review's state changes:
 opened (with the URL), "No changes", a round handled, finished, left pending, or an error. Never go quiet.
 An item marked OUTDATED refers to a hunk that changed since; use its quoted line for the intent.
+A REWRITE item quotes text the user selected and a draft of what it should say. Replace the
+selection with the draft's meaning, but polish the draft first: grammar, wording, tone, and fit
+with the surrounding text. Reply with the final wording, then resolve.

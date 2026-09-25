@@ -612,8 +612,14 @@ def report(st, desc, only=None):
             out.append('\n### %s%s' % (cur, ' (renamed from %s)' % f['old_path'] if f and f['status'] == 'renamed' else ''))
         tag = ' [OUTDATED: hunk changed since comment]' if c.get('outdated') else ''
         if not c.get('sent'):
-            out.append('- [%s] %s%s%s' % (c['id'], fmt_where(c), fmt_quote(c), tag))
-            out.append(indent(c.get('text', '')))
+            if c.get('kind') == 'rewrite':
+                out.append('- [%s] %s%s REWRITE the selected text:' % (c['id'], fmt_where(c), tag))
+                out.append(indent(c.get('selected', ''), '  | '))
+                out.append('  to (the user\'s draft; polish it):')
+                out.append(indent(c.get('text', ''), '  | '))
+            else:
+                out.append('- [%s] %s%s%s' % (c['id'], fmt_where(c), fmt_quote(c), tag))
+                out.append(indent(c.get('text', '')))
             c['sent'] = True
         else:
             who = ' (Claude asked)' if c.get('by') == 'claude' else ''
