@@ -149,7 +149,15 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .composer .row { display:flex; gap:6px; align-items:flex-start; }
 .quote { margin:0 0 6px; padding:6px 9px; border-left:3px solid var(--border); background:var(--panel2); color:var(--muted); font-family:var(--font); font-size:12px; white-space:pre-wrap; word-break:break-word; }
 .cmt .quote { margin-top:2px; }
-#rw { position:fixed; z-index:45; box-shadow:0 4px 16px rgba(0,0,0,.4); }
+#seltools { position:fixed; z-index:45; display:flex; gap:4px; padding:3px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.4); }
+/* a rewrite reads as a small diff: what was selected, what it should become */
+.tag { display:inline-block; padding:0 5px; border:1px solid var(--accent-line); border-radius:3px; color:var(--accent); font-size:10px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; vertical-align:1px; }
+.rw { font-family:var(--font); font-size:12px; white-space:pre-wrap; word-break:break-word; }
+.rw > div { padding:5px 9px 5px 22px; position:relative; }
+.rw > div::before { position:absolute; left:9px; font-weight:700; }
+.rw .from { background:var(--del-bg); color:var(--muted); text-decoration:line-through; text-decoration-color:rgba(240,115,124,.5); } .rw .from::before { content:'−'; color:var(--del); }
+.rw .to { background:var(--add-bg); } .rw .to::before { content:'+'; color:var(--add); }
+.composer .rw { margin-bottom:6px; }
 .composer .row textarea { min-height:34px; flex:1; }
 
 /* summary panel */

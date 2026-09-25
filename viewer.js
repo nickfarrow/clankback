@@ -318,16 +318,18 @@ function threadEl(c) {
   if (folded.has(c.id)) {
     const n = 1 + (c.replies || []).length, first = c.text.split(/(?<=[.!?])\s|\n/)[0].slice(0, 120);
     t.classList.add('tab'); t.title = 'Expand thread';
-    t.innerHTML = '<span class="by">' + (c.by === 'claude' ? 'Claude' : 'You') + '</span> · ' + where(c) + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '<span class="txt">' + esc(first) + '</span><span class="car down" title="Expand thread"></span>';
+    t.innerHTML = '<span class="by">' + (c.by === 'claude' ? 'Claude' : 'You') + '</span> · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '<span class="txt">' + esc(first) + '</span><span class="car down" title="Expand thread"></span>';
     t.onclick = () => { folded.delete(c.id); mountThread(c); refreshCount(); };
     return t;
   }
-  const cm = (text, meta, extra, cls, quote) => '<div class="cmt' + (cls || '') + '"><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div>' + (quote ? '<pre class="quote">' + esc(quote) + '</pre>' : '') + '<div class="txt">' + esc(text) + '</div></div>';
+  const cm = (text, meta, extra, cls, body) => '<div class="cmt' + (cls || '') + '"><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div>' + (body || '<div class="txt">' + esc(text) + '</div>') + '</div>';
+  const rwBody = c => '<div class="rw"><div class="from">' + esc(c.selected) + '</div><div class="to">' + esc(c.text) + '</div></div>';
+  const body = c.kind === 'rewrite' ? rwBody(c) : c.selected ? '<pre class="quote">' + esc(c.selected) + '</pre><div class="txt">' + esc(c.text) + '</div>' : '';
   const unsent = x => (x.sent ? '' : ' <span class="unsent">· unsent</span>') + (x === c && c.outdated ? ' <span class="out">· OUTDATED, line changed since</span>' : '');
   const fold = '<button data-a="fold" class="car up" title="Collapse thread"></button>';
   t.innerHTML = (c.by === 'claude'
       ? cm(c.text, '<span class="by">Claude</span> · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
-      : cm(c.text, '<span class="by">You</span> · ' + where(c) + (c.kind === 'rewrite' ? ' · rewrite' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + unsent(c), fold, '', c.kind === 'rewrite' ? c.selected : '')) +
+      : cm(c.text, '<span class="by">You</span> · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + unsent(c), fold, '', body)) +
     (c.replies || []).map(r => r.by === 'claude' ? cm(r.text, '<span class="by">Claude</span>', '', ' claude') : cm(r.text, '<span class="by">You</span>' + unsent(r))).join('') +
     '<div class="tfoot"><textarea placeholder="Reply…"></textarea><button class="small" data-a="reply">Reply</button><button class="small" data-a="resolve">' + (c.resolved ? 'Unresolve' : 'Resolve') + '</button>' +
     (hasUnsent(c) ? '<button class="small primary" data-a="send" title="Send this thread to the clanker now">Send</button>' : '') + '</div>';
@@ -419,27 +421,28 @@ function reopenComposer(k) {  // after a diff reload: same hunk if it survived, 
     const col = k.side === 'new' ? 3 : 2;
     files[k.fi].hunks.some((h, i) => { const j = h.lines.findIndex(l => l[col] === k.line); if (j >= 0) { hi = i; li = endLi = j; return true; } });
   }
-  if (hi >= 0) openComposer(k.fi, hi, li, endLi, k.side, k.text, k.rw);
+  if (hi >= 0) openComposer(k.fi, hi, li, endLi, k.side, k.text, k.sel);
   else if (k.text) toast('The lines you were commenting on changed. Your draft: ' + k.text);
 }
-function openComposer(fi, hi, li, endLi, side, draft, rw) {  // rw: selected text to be rewritten
+function openComposer(fi, hi, li, endLi, side, draft, sel) {  // sel: {text, rewrite} when opened from a text selection
   closeComposer();
   const h = files[fi].hunks[hi], a = Math.min(li, endLi), b = Math.max(li, endLi);
   const tr = rowFor(fi, hi, b); if (!tr) return;
   const ln = i => { const l = h.lines[i]; return l[3] ?? l[2]; };
-  composerAt = {fi, hi, li, endLi, side, hash: h.hash, line: ln(a), rw};
+  composerAt = {fi, hi, li, endLi, side, hash: h.hash, line: ln(a), sel};
   const rng = side + ' L' + (a === b ? ln(a) : ln(a) + '–' + ln(b));
   const cr = commentRowAfter(tr);
+  const rw = sel && sel.rewrite;
   composer = el('div', {class: 'composer'}, rw
-    ? '<div class="rng">Rewrite in ' + rng + '</div><pre class="quote">' + esc(rw) + '</pre><div class="row"><textarea placeholder="What it should say instead. The clanker tidies wording, grammar and fit. (Ctrl+Enter)"></textarea><button class="small primary" data-a="save">Ask for rewrite</button><button class="small" data-a="cancel">Cancel</button></div>'
-    : '<div class="rng">Comment on ' + rng + '</div><div class="row"><textarea placeholder="Leave a comment… (Ctrl+Enter to save)"></textarea><button class="small primary" data-a="save">Add comment</button><button class="small" data-a="cancel">Cancel</button></div>');
+    ? '<div class="rng"><span class="tag">rewrite</span> ' + rng + '</div><div class="rw"><div class="from">' + esc(sel.text) + '</div></div><div class="row"><textarea placeholder="What it should say instead. The clanker tidies wording, grammar and fit. (Ctrl+Enter)"></textarea><button class="small primary" data-a="save">Ask for rewrite</button><button class="small" data-a="cancel">Cancel</button></div>'
+    : '<div class="rng">Comment on ' + rng + '</div>' + (sel ? '<pre class="quote">' + esc(sel.text) + '</pre>' : '') + '<div class="row"><textarea placeholder="Leave a comment… (Ctrl+Enter to save)"></textarea><button class="small primary" data-a="save">Add comment</button><button class="small" data-a="cancel">Cancel</button></div>');
   cr.firstElementChild.prepend(composer);
   const ta = composer.querySelector('textarea'); if (draft) ta.value = draft; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   const submit = () => {
     const text = ta.value.trim(); if (!text) return;
     const c = {id: uid(), file: files[fi].path, hunk: h.hash, offset: a, end_offset: a === b ? null : b, side, line: ln(a), end_line: a === b ? null : ln(b),
       line_text: h.lines[a][0] + h.lines[a][1], text, created: Date.now() / 1000, resolved: false, replies: []};
-    if (rw) { c.kind = 'rewrite'; c.selected = rw; }
+    if (sel) { c.selected = sel.text; if (sel.rewrite) c.kind = 'rewrite'; }
     closeComposer(); save(c);
   };
   composer.querySelector('[data-a="save"]').onclick = submit;
@@ -503,14 +506,17 @@ function textSelection() {  // {fi, hi, a, b, side, text, rect} for a selection 
   return {fi, hi, a, b, side, text, rect: r.getBoundingClientRect()};
 }
 function offerRewrite() {
-  rwSel = textSelection(); const btn = $('#rw');
-  if (!rwSel) { btn.hidden = true; return; }
-  btn.hidden = false; btn.style.left = Math.max(8, rwSel.rect.left) + 'px'; btn.style.top = Math.max(8, rwSel.rect.top - 30) + 'px';
+  rwSel = textSelection(); const bar = $('#seltools');
+  if (!rwSel) { bar.hidden = true; return; }
+  bar.hidden = false; bar.style.left = Math.max(8, rwSel.rect.left) + 'px'; bar.style.top = Math.max(8, rwSel.rect.top - 36) + 'px';
 }
-$('#rw').onmousedown = e => e.preventDefault();  // keep the selection
-$('#rw').onclick = () => { const s = rwSel; $('#rw').hidden = true; if (!s) return; window.getSelection().removeAllRanges(); openComposer(s.fi, s.hi, s.a, s.b, s.side, null, s.text); };
-document.addEventListener('mousedown', e => { if (e.target.id !== 'rw') $('#rw').hidden = true; });
-$('#main').addEventListener('scroll', () => { $('#rw').hidden = true; });
+$('#seltools').onmousedown = e => e.preventDefault();  // keep the selection
+$('#seltools').onclick = e => {
+  const a = e.target.dataset.a, s = rwSel; $('#seltools').hidden = true; if (!a || !s) return;
+  window.getSelection().removeAllRanges(); openComposer(s.fi, s.hi, s.a, s.b, s.side, null, {text: s.text, rewrite: a === 'rewrite'});
+};
+document.addEventListener('mousedown', e => { if (!e.target.closest('#seltools')) $('#seltools').hidden = true; });
+$('#main').addEventListener('scroll', () => { $('#seltools').hidden = true; });
 
 // ---------------------------------------------------------------- summary / finish
 function buildSummary() {
@@ -521,8 +527,8 @@ function buildSummary() {
   cs.forEach(c => {
     if (c.file !== cur) { cur = c.file; list.append(el('h4', null, esc(c.file))); }
     const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '')},
-      '<div class="where">' + (c.by === 'claude' ? 'Claude · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.kind === 'rewrite' ? ' · rewrite' : '') + (c.outdated ? ' · OUTDATED' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
-      (c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + esc(c.text) + '</div>');
+      '<div class="where">' + (c.by === 'claude' ? 'Claude · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.outdated ? ' · OUTDATED' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
+      (c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + esc(c.text) + '</div>');
     it.onclick = () => jumpToComment(c); list.append(it);
   });
 }

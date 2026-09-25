@@ -617,6 +617,10 @@ def report(st, desc, only=None):
                 out.append(indent(c.get('selected', ''), '  | '))
                 out.append('  to (the user\'s draft; polish it):')
                 out.append(indent(c.get('text', ''), '  | '))
+            elif c.get('selected'):
+                out.append('- [%s] %s%s on the selected text:' % (c['id'], fmt_where(c), tag))
+                out.append(indent(c['selected'], '  | '))
+                out.append(indent(c.get('text', '')))
             else:
                 out.append('- [%s] %s%s%s' % (c['id'], fmt_where(c), fmt_quote(c), tag))
                 out.append(indent(c.get('text', '')))
