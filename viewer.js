@@ -3,6 +3,7 @@ const D = window.DATA, files = D.files, comments = D.comments || {}, viewed = ne
 let view = (D.prefs && D.prefs.view) || 'unified', finished = false, focusRow = null, drag = null, activeFile = 0;
 const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const esc = s => s.replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const fmt = s => esc(s).replace(/```[^\n]*\n([\s\S]*?)```\n?/g, (_, b) => '<pre>' + b.replace(/\n$/, '') + '</pre>').replace(/`([^`\n]+)`/g, '<code>$1</code>');  // GitHub-style backticks
 const el = (tag, attrs, html) => { const e = document.createElement(tag); if (attrs) for (const k in attrs) { if (k === 'class') e.className = attrs[k]; else if (k.startsWith('on')) e.addEventListener(k.slice(2), attrs[k]); else e.setAttribute(k, attrs[k]); } if (html != null) e.innerHTML = html; return e; };
 const uid = () => { let id; do { id = Math.random().toString(36).slice(2, 7); } while (comments[id]); return id; };
 
@@ -318,13 +319,13 @@ function threadEl(c) {
   if (folded.has(c.id)) {
     const n = 1 + (c.replies || []).length, first = c.text.split(/(?<=[.!?])\s|\n/)[0].slice(0, 120);
     t.classList.add('tab'); t.title = 'Expand thread';
-    t.innerHTML = '<span class="by">' + (c.by === 'claude' ? 'Claude' : 'You') + '</span> · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '<span class="txt">' + esc(first) + '</span><span class="car down" title="Expand thread"></span>';
+    t.innerHTML = '<span class="by">' + (c.by === 'claude' ? 'Claude' : 'You') + '</span> · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '<span class="txt">' + fmt(first) + '</span><span class="car down" title="Expand thread"></span>';
     t.onclick = () => { folded.delete(c.id); mountThread(c); refreshCount(); };
     return t;
   }
-  const cm = (text, meta, extra, cls, body) => '<div class="cmt' + (cls || '') + '"><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div>' + (body || '<div class="txt">' + esc(text) + '</div>') + '</div>';
+  const cm = (text, meta, extra, cls, body) => '<div class="cmt' + (cls || '') + '"><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div>' + (body || '<div class="txt">' + fmt(text) + '</div>') + '</div>';
   const rwBody = c => '<div class="rw"><div class="from">' + esc(c.selected) + '</div><div class="to">' + esc(c.text) + '</div></div>';
-  const body = c.kind === 'rewrite' ? rwBody(c) : c.selected ? '<pre class="quote">' + esc(c.selected) + '</pre><div class="txt">' + esc(c.text) + '</div>' : '';
+  const body = c.kind === 'rewrite' ? rwBody(c) : c.selected ? '<pre class="quote">' + esc(c.selected) + '</pre><div class="txt">' + fmt(c.text) + '</div>' : '';
   const unsent = x => (x.sent ? '' : ' <span class="unsent">· unsent</span>') + (x === c && c.outdated ? ' <span class="out">· OUTDATED, line changed since</span>' : '');
   const fold = '<button data-a="fold" class="car up" title="Collapse thread"></button>';
   t.innerHTML = (c.by === 'claude'
@@ -528,7 +529,7 @@ function buildSummary() {
     if (c.file !== cur) { cur = c.file; list.append(el('h4', null, esc(c.file))); }
     const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '')},
       '<div class="where">' + (c.by === 'claude' ? 'Claude · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.outdated ? ' · OUTDATED' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
-      (c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + esc(c.text) + '</div>');
+      (c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + fmt(c.text) + '</div>');
     it.onclick = () => jumpToComment(c); list.append(it);
   });
 }
