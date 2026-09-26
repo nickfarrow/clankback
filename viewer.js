@@ -3,7 +3,16 @@ const D = window.DATA, files = D.files, comments = D.comments || {}, viewed = ne
 let view = (D.prefs && D.prefs.view) || 'unified', finished = false, focusRow = null, drag = null, activeFile = 0;
 const $ = (s, r) => (r || document).querySelector(s), $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const esc = s => s.replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-const fmt = s => esc(s).replace(/```[^\n]*\n([\s\S]*?)```\n?/g, (_, b) => '<pre>' + b.replace(/\n$/, '') + '</pre>').replace(/`([^`\n]+)`/g, '<code>$1</code>');  // GitHub-style backticks
+// A small markdown subset, GitHub-style: code, bold, italics, links, bullets. Code spans are left alone by the other rules.
+const inline = s => s
+  .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+  .replace(/(^|[\s(])[_*]([^_*\n]+)[_*](?=[\s.,;:!?)]|$)/g, '$1<i>$2</i>')
+  .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+  .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>')
+  .replace(/(^|\n)[-*] /g, '$1• ');
+const fmt = s => esc(s).split(/(```[^\n]*\n[\s\S]*?```\n?|`[^`\n]+`)/g).map((p, i) => i % 2
+  ? (p.startsWith('```') ? '<pre>' + p.replace(/^```[^\n]*\n/, '').replace(/```\n?$/, '').replace(/\n$/, '') + '</pre>' : '<code>' + p.slice(1, -1) + '</code>')
+  : inline(p)).join('');
 const el = (tag, attrs, html) => { const e = document.createElement(tag); if (attrs) for (const k in attrs) { if (k === 'class') e.className = attrs[k]; else if (k.startsWith('on')) e.addEventListener(k.slice(2), attrs[k]); else e.setAttribute(k, attrs[k]); } if (html != null) e.innerHTML = html; return e; };
 const uid = () => { let id; do { id = Math.random().toString(36).slice(2, 7); } while (comments[id]); return id; };
 
