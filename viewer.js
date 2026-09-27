@@ -36,7 +36,7 @@ async function reloadDiff() {  // the working tree changed: re-render in place, 
   $$('.thread').forEach(t => { const ta = t.querySelector('.tfoot textarea'); if (ta && ta.value) drafts[t.dataset.id] = ta.value; });
   const keep = composer && {...composerAt, text: composer.querySelector('textarea').value}; composer = composerAt = null;
   const wasRendered = new Set(rendered);
-  files.splice(0, files.length, ...r.files); rendered.clear();
+  files.splice(0, files.length, ...r.files); addOrphans(); rendered.clear();
   buildSidebar(); buildFiles();
   wasRendered.forEach(i => { if (i < files.length) renderFile(i); });
   for (const id in drafts) { const ta = $('.thread[data-id="' + id + '"] .tfoot textarea'); if (ta) ta.value = drafts[id]; }
@@ -160,6 +160,9 @@ function computeMarks(h) {  // marks per line index in hunk
 const badge = f => f.binary ? 'B' : {added: 'A', deleted: 'D', renamed: 'R', copied: 'C', mode: 'M'}[f.status] || '';
 const badgeEl = f => badge(f) ? [el('span', {class: 'badge ' + badge(f)}, badge(f))] : [];
 const counts = f => (f.adds ? '<span class="a">+' + f.adds + '</span> ' : '') + (f.dels ? '<span class="d">-' + f.dels + '</span>' : '');
+function addOrphans() {  // a commented file that is no longer in the diff still gets a section, so its threads stay reachable
+  Object.values(comments).forEach(c => { if (fileIndex(c.file) < 0) files.push({path: c.file, status: 'gone', orphan: true, hunks: [], adds: 0, dels: 0}); });
+}
 function buildSidebar() {
   const ul = $('#filelist'); ul.innerHTML = '';
   files.forEach((f, i) => {
@@ -171,8 +174,8 @@ function buildSidebar() {
     li.onclick = () => jumpToFile(i);
     ul.append(li);
   });
-  let ta = 0, td = 0; files.forEach(f => { ta += f.adds; td += f.dels; });
-  $('#stats').innerHTML = files.length + ' file' + (files.length === 1 ? '' : 's') + ' <span class="a">+' + ta + '</span> <span class="d">-' + td + '</span>';
+  let ta = 0, td = 0, n = 0; files.forEach(f => { ta += f.adds; td += f.dels; n += f.orphan ? 0 : 1; });
+  $('#stats').innerHTML = n + ' file' + (n === 1 ? '' : 's') + ' <span class="a">+' + ta + '</span> <span class="d">-' + td + '</span>';
   $('#target').innerHTML = '<span>' + esc(D.target) + '</span>'; $('#target').title = D.target;
   $('#filter').oninput = e => { const q = e.target.value.toLowerCase(); $$('#filelist li').forEach(li => li.hidden = q && !files[+li.dataset.f].path.toLowerCase().includes(q)); };
 }
@@ -211,6 +214,13 @@ function renderFile(i, force) {
   const f = files[i], body = $('#file-' + i + ' .fbody'); body.innerHTML = '';
   if (f.binary) { body.append(el('div', {class: 'note'}, 'Binary file' + (f.status === 'added' ? ' added' : f.status === 'deleted' ? ' deleted' : ' changed') + '.')); return; }
   if (f.status === 'mode') { body.append(el('div', {class: 'note'}, 'Mode changed ' + f.old_mode + ' → ' + f.new_mode + '.')); return; }
+  if (f.orphan) {  // one row to hang the threads on
+    const tbl = el('table', {class: 'diff'}), tb = el('tbody'); body.append(tbl);
+    tbl.innerHTML = view === 'split' ? '<colgroup><col class="cn"><col><col class="cn"><col></colgroup>' : '<colgroup><col class="cn"><col class="cn"><col></colgroup>'; tbl.append(tb);
+    tb.append(el('tr', {class: 'hunk'}, '<td colspan="' + (view === 'split' ? 4 : 3) + '">No longer in the diff. These threads refer to an earlier version of the file.</td>'));
+    Object.values(comments).forEach(c => { if (c.file === f.path) mountThread(c); });
+    return;
+  }
   if (!f.hunks.length) { body.append(el('div', {class: 'note'}, (f.status === 'renamed' ? 'Renamed without changes' + (f.similarity ? ' (similarity ' + f.similarity + ')' : '') : f.status === 'added' ? 'Empty file added' : 'No content changes') + (f.old_mode && f.new_mode && f.old_mode !== f.new_mode ? '; mode ' + f.old_mode + ' → ' + f.new_mode : '') + '.')); return; }
   const tbl = el('table', {class: 'diff'}), tb = el('tbody'); body.append(tbl);
   const lang = langFor(f.path), cols = view === 'split' ? 4 : 3;
@@ -311,7 +321,7 @@ function anchorRow(fi, line) {  // best row for a line whose hunk is gone: same 
   if (line != null) files[fi].hunks.some((h, hi) => h.lines.some((l, li) => { if (l[3] === line || (l[3] == null && l[2] === line)) { row = rowFor(fi, hi, li); return true; } }));
   if (row) return row;
   const hs = $$('#file-' + fi + ' tr.hunk:not(.gap)');
-  return hs.find(h => files[fi].hunks[+h.dataset.h].new_start > (line || 0)) || hs[hs.length - 1] || null;
+  return hs.find(h => (files[fi].hunks[+h.dataset.h] || {}).new_start > (line || 0)) || hs[hs.length - 1] || null;
 }
 function mountThread(c) {
   const fi = fileIndex(c.file); if (fi < 0) return;
@@ -602,7 +612,7 @@ function toggleView() {
 function toggleSide() { const on = $('#side').classList.toggle('hidden'); api('/prefs', {sidebar: !on}); }
 
 // ---------------------------------------------------------------- init
-buildSidebar(); buildFiles(); refreshCount();
+addOrphans(); buildSidebar(); buildFiles(); refreshCount();
 $('#viewToggle').textContent = view === 'split' ? 'Unified' : 'Split';
 $('#viewToggle').onclick = toggleView; $('#sideToggle').onclick = toggleSide;
 if (D.prefs && D.prefs.sidebar === false) $('#side').classList.add('hidden');
