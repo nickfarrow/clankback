@@ -384,12 +384,13 @@ function refreshCount() {
   const cs = Object.values(comments), open = cs.filter(c => !c.resolved).length;
   $('#ccount').textContent = cs.length + (open ? ' (' + open + ' open)' : '');
   $('#qcount').textContent = cs.filter(c => unseenIn(c).length).length;
-  $('#foldBtn').textContent = cs.length && cs.every(c => folded.has(c.id)) ? 'Expand all' : 'Collapse all';
+  const rs = cs.filter(c => c.resolved);
+  $('#foldBtn').textContent = rs.length && rs.every(c => folded.has(c.id)) ? 'Expand resolved' : 'Collapse resolved';
   const n = cs.filter(c => !c.sent && c.by !== 'claude').length + cs.reduce((a, c) => a + (c.replies || []).filter(r => r.by !== 'claude' && !r.sent).length, 0);
   $$('#sendBtn, #sendBtn2').forEach(b => { b.textContent = 'Send to clanker' + (n ? ' (' + n + ')' : ''); b.disabled = !n; });
 }
-function foldAll() {  // collapse every thread to a tab; when all are tabs, expand them
-  const cs = Object.values(comments), on = !cs.every(c => folded.has(c.id));
+function foldAll(resolvedOnly) {  // collapse every (resolved) thread to a tab; when they are all tabs, expand them
+  const cs = Object.values(comments).filter(c => !resolvedOnly || c.resolved), on = !cs.every(c => folded.has(c.id));
   cs.forEach(c => on ? folded.add(c.id) : folded.delete(c.id));
   $$('.thread').forEach(t => mountThread(comments[t.dataset.id]));
   refreshCount();
@@ -618,7 +619,7 @@ $('#viewToggle').textContent = view === 'split' ? 'Unified' : 'Split';
 $('#viewToggle').onclick = toggleView; $('#sideToggle').onclick = toggleSide;
 if (D.prefs && D.prefs.sidebar === false) $('#side').classList.add('hidden');
 $('#summaryBtn').onclick = () => toggleSummary(); $('#closeSummary').onclick = () => toggleSummary(false);
-$('#claudeBtn').onclick = () => nextFromClaude(1); $('#foldBtn').onclick = foldAll;
+$('#claudeBtn').onclick = () => nextFromClaude(1); $('#foldBtn').onclick = () => foldAll(true); $('#foldAllBtn').onclick = () => foldAll(false);
 $('#finishBtn').onclick = finish; $('#sendBtn').onclick = send; $('#sendBtn2').onclick = send;
 setInterval(() => { if (!finished) poll(); }, 2000);
 if (Object.values(comments).some(c => c.outdated)) banner('Some comments point at code that has changed since. They are marked OUTDATED in the comments list.');

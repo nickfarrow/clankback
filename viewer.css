@@ -197,3 +197,4 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 /* syntax */
 .hl-k { color:#ff8b7e; } .hl-s { color:#a5d6ff; } .hl-c { color:var(--muted); font-style:italic; }
 .hl-n { color:#79c0ff; } .hl-f { color:#d2a8ff; } .hl-t { color:#ffb37a; }
+#foldAllBtn { margin-left:-4px; }
