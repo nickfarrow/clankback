@@ -9,7 +9,8 @@ const inline = s => s
   .replace(/(^|[\s(])[_*]([^_*\n]+)[_*](?=[\s.,;:!?)]|$)/g, '$1<i>$2</i>')
   .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
   .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>')
-  .replace(/(^|\n)[-*] /g, '$1• ');
+  .replace(/(^|\n)[-*] /g, '$1• ')
+  .replace(/<[^>]*>|(?<![\w\/])([a-z0-9]{5})(?![\w\/])/g, (m, id) => id && comments[id] ? '<a class="ref" data-id="' + id + '" title="' + esc(where(comments[id]) + ': ' + comments[id].text.slice(0, 80)) + '">' + id + '</a>' : m);  // a thread id becomes a link to that thread
 const fmt = s => esc(s).split(/(```[^\n]*\n[\s\S]*?```\n?|`[^`\n]+`)/g).map((p, i) => i % 2
   ? (p.startsWith('```') ? '<pre>' + p.replace(/^```[^\n]*\n/, '').replace(/```\n?$/, '').replace(/\n$/, '') + '</pre>' : '<code>' + p.slice(1, -1) + '</code>')
   : inline(p)).join('');
@@ -554,6 +555,7 @@ function buildSummary() {
     it.onclick = () => jumpToComment(c); list.append(it);
   });
 }
+document.addEventListener('click', e => { const a = e.target.closest('a.ref'); if (a && comments[a.dataset.id]) { e.preventDefault(); e.stopPropagation(); jumpToComment(comments[a.dataset.id]); } }, true);
 function jumpToComment(c) {
   const fi = fileIndex(c.file); if (fi < 0) return;
   renderFile(fi); $('#file-' + fi).classList.remove('collapsed');
