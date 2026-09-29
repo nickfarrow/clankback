@@ -303,10 +303,24 @@ def run_info(key):
 
 
 def attach_comments(files, comments):
-    """Recompute line numbers from hunk offsets; flag comments whose hunk is gone."""
+    """Recompute line numbers from hunk offsets; a comment whose hunk changed follows its line's text, or is flagged outdated."""
     by_key = {(f['path'], h['hash']): h for f in files for h in f['hunks']}
+    by_path = {f['path']: f['hunks'] for f in files}
     for c in comments.values():
         h = by_key.get((c['file'], c['hunk']))
+        if h is None and c.get('line_text'):
+            best = None  # the same text nearest the old line number
+            for nh in by_path.get(c['file'], []):
+                for i, l in enumerate(nh['lines']):
+                    if l[0] + l[1] == c['line_text']:
+                        d = abs((l[3] if l[3] is not None else l[2]) - (c.get('line') or 0))
+                        if best is None or d < best[0]:
+                            best = (d, nh, i)
+            if best:
+                _, h, i = best
+                if c.get('end_offset') is not None:
+                    c['end_offset'] = max(0, min(i + c['end_offset'] - c['offset'], len(h['lines']) - 1))
+                c['hunk'], c['offset'] = h['hash'], i
         c['outdated'] = h is None
         if h is None:
             continue

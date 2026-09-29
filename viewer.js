@@ -328,8 +328,9 @@ function mountThread(c) {
   const hi = hunkIndex(fi, c.hunk);
   const tr = hi >= 0 ? rowFor(fi, hi, c.end_offset ?? c.offset) : anchorRow(fi, c.end_line ?? c.line);
   if (!tr) return;
-  const cr = commentRowAfter(tr), old = cr.querySelector('[data-id="' + c.id + '"]');
-  const t = threadEl(c); old ? old.replaceWith(t) : cr.firstElementChild.append(t);
+  const cr = commentRowAfter(tr), old = $('.thread[data-id="' + c.id + '"]'), t = threadEl(c);
+  if (old && old.parentElement === cr.firstElementChild) old.replaceWith(t);
+  else { if (old) unmountThread(c.id); cr.firstElementChild.append(t); }  // the thread may have followed its line to another row
 }
 function unmountThread(id) { const t = $('.thread[data-id="' + id + '"]'); if (!t) return; const cr = t.closest('tr.crow'); t.remove(); if (!cr.firstElementChild.children.length) cr.remove(); }
 const folded = new Set();  // thread ids shown as a one-line tab (page-local, not saved)
