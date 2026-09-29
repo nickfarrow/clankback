@@ -43,7 +43,7 @@ async function reloadDiff() {  // the working tree changed: re-render in place, 
   for (const id in drafts) { const ta = $('.thread[data-id="' + id + '"] .tfoot textarea'); if (ta) ta.value = drafts[id]; }
   if (actId) { const ta = $('.thread[data-id="' + actId + '"] .tfoot textarea'); if (ta) { ta.focus(); ta.setSelectionRange(sel[0], sel[1]); } }
   if (keep) reopenComposer(keep);
-  main.scrollTop = top; refreshCount(); if (!$('#summary').hidden) buildSummary();
+  main.scrollTop = top; refreshCount();
   toast('The files changed on disk. Diff reloaded.');
 }
 
@@ -366,7 +366,7 @@ function threadEl(c) {
   t.addEventListener('mouseenter', () => markSeen(c), {once: true});
   return t;
 }
-function save(c) { comments[c.id] = c; mountThread(c); const p = api('/comment', {comment: c}); refreshCount(); if (!$('#summary').hidden) buildSummary(); return p; }
+function save(c) { comments[c.id] = c; mountThread(c); const p = api('/comment', {comment: c}); refreshCount(); return p; }
 const unseenIn = c => [c].concat(c.replies || []).filter(x => x.by === 'claude' && x.seen === false);
 function markSeen(c) {
   const ids = unseenIn(c).map(x => x.id); if (!ids.length) return;
@@ -376,14 +376,20 @@ function claudeThreads(unseenOnly) {
   return Object.values(comments).filter(c => unseenOnly ? unseenIn(c).length : (c.by === 'claude' || (c.replies || []).some(r => r.by === 'claude')))
     .sort((a, b) => (fileIndex(a.file) - fileIndex(b.file)) || (a.line - b.line));
 }
-let navPos = -1;
+let navPos = -1, openPos = -1;
+function nextOpen(dir) {
+  const list = Object.values(comments).filter(c => !c.resolved).sort((a, b) => (fileIndex(a.file) - fileIndex(b.file)) || (a.line - b.line));
+  if (!list.length) return;
+  openPos = (openPos + dir + list.length) % list.length; jumpToComment(list[openPos]);
+}
 function nextFromClaude(dir) {
   let list = claudeThreads(true); if (!list.length) { list = claudeThreads(false); if (!list.length) { toast('Nothing from clanker yet.'); return; } }
   navPos = (navPos + dir + list.length) % list.length; jumpToComment(list[navPos]);
 }
 function refreshCount() {
   const cs = Object.values(comments), open = cs.filter(c => !c.resolved).length;
-  $('#ccount').textContent = cs.length + (open ? ' (' + open + ' open)' : '');
+  $('#ccount').textContent = cs.length; $('#openBtn').textContent = open + ' open'; $('#openBtn').hidden = !open;
+  if (!$('#summary').hidden) buildSummary();
   $('#qcount').textContent = cs.filter(c => unseenIn(c).length).length;
   const rs = cs.filter(c => c.resolved);
   $('#foldBtn').textContent = rs.length && rs.every(c => folded.has(c.id)) ? 'Expand resolved' : 'Collapse resolved';
@@ -420,7 +426,7 @@ async function poll() {  // pick up replies and resolves made from the terminal
     }
   }
   for (const id in comments) if (!r.comments[id]) { delete comments[id]; unmountThread(id); changed = true; }
-  if (changed) { refreshCount(); if (!$('#summary').hidden) buildSummary(); }
+  if (changed) refreshCount();
   if (fresh && !$('.pointed') && !typing()) jumpToComment(fresh);  // never yank the page while the user types
   if (r.diff_rev && diffRev && r.diff_rev !== diffRev) await reloadDiff();
   if (r.focus && r.focus.seq !== focusSeq) { focusSeq = r.focus.seq; showFocus(r.focus); }
@@ -543,17 +549,18 @@ $('#main').addEventListener('scroll', () => { $('#seltools').hidden = true; });
 
 // ---------------------------------------------------------------- summary / finish
 function buildSummary() {
-  const list = $('#sumlist'); list.innerHTML = '';
+  const list = $('#sumlist'), top = list.scrollTop; list.innerHTML = '';
   const cs = Object.values(comments).sort((a, b) => (fileIndex(a.file) - fileIndex(b.file)) || (a.line - b.line));
   if (!cs.length) list.innerHTML = '<div class="note">No comments yet. Hover a line and click +, or press c.</div>';
   let cur = null;
   cs.forEach(c => {
     if (c.file !== cur) { cur = c.file; list.append(el('h4', null, esc(c.file))); }
-    const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '')},
+    const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '') + (folded.has(c.id) ? ' tab' : '')},
       '<div class="where">' + (c.by === 'claude' ? 'Claude · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.outdated ? ' · OUTDATED' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
-      (c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + fmt(c.text) + '</div>');
+      (folded.has(c.id) ? '' : c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + fmt(c.text) + '</div>');
     it.onclick = () => jumpToComment(c); list.append(it);
   });
+  list.scrollTop = top;
 }
 document.addEventListener('click', e => { const a = e.target.closest('a.ref'); if (a && comments[a.dataset.id]) { e.preventDefault(); e.stopPropagation(); jumpToComment(comments[a.dataset.id]); } }, true);
 function jumpToComment(c) {
@@ -621,7 +628,7 @@ $('#viewToggle').textContent = view === 'split' ? 'Unified' : 'Split';
 $('#viewToggle').onclick = toggleView; $('#sideToggle').onclick = toggleSide;
 if (D.prefs && D.prefs.sidebar === false) $('#side').classList.add('hidden');
 $('#summaryBtn').onclick = () => toggleSummary(); $('#closeSummary').onclick = () => toggleSummary(false);
-$('#claudeBtn').onclick = () => nextFromClaude(1); $('#foldBtn').onclick = () => foldAll(true); $('#foldAllBtn').onclick = () => foldAll(false);
+$('#claudeBtn').onclick = () => nextFromClaude(1); $('#openBtn').onclick = () => nextOpen(1); $('#foldBtn').onclick = () => foldAll(true); $('#foldAllBtn').onclick = () => foldAll(false);
 $('#finishBtn').onclick = finish; $('#sendBtn').onclick = send; $('#sendBtn2').onclick = send;
 setInterval(() => { if (!finished) poll(); }, 2000);
 if (Object.values(comments).some(c => c.outdated)) banner('Some comments point at code that has changed since. They are marked OUTDATED in the comments list.');
