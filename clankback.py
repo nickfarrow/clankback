@@ -134,6 +134,14 @@ def produce_diff(t, cwd):
     return out + ''.join(new_file_diff(p, t['root'], common) for p in untracked.split('\0') if p)
 
 
+def diff_files(t, cwd):
+    """The parsed diff, with two loose files named as the user typed them (git drops their leading slash)."""
+    files = parse_diff(produce_diff(t, cwd))
+    if t['mode'] == 'files' and files:
+        files[0]['old_path'], files[0]['path'] = t['names']
+    return files
+
+
 # ---------------------------------------------------------------- diff parser
 
 def unquote_path(p):
@@ -358,9 +366,7 @@ class Review:
 
     def refresh(self):
         """Re-run the diff so a browser (re)load shows the current working tree."""
-        files = parse_diff(produce_diff(self.target, self.cwd))
-        if self.target['mode'] == 'files' and files:
-            files[0]['old_path'], files[0]['path'] = self.target['names']
+        files = diff_files(self.target, self.cwd)
         rev = hashlib.sha1(json.dumps([(f['path'], [h['hash'] for h in f['hunks']]) for f in files]).encode()).hexdigest()[:8]
         with self.lock:
             with locked_state(self.spath) as st:
@@ -736,7 +742,7 @@ def cmd_ask(argv):
     path, _, line = argv[0].rpartition(':')
     line, text = int(line), ' '.join(argv[1:]).strip()
     st, path = open_review(path)
-    files = parse_diff(produce_diff(st['t'], st['cwd']))
+    files = diff_files(st['t'], st['cwd'])
     f = next((f for f in files if f['path'] == path), None)
     hit = None
     for side in (3, 2):  # prefer the new side; fall back to a deleted old line
