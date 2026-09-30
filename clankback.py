@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """clankback: review a local diff in the browser, GitHub-PR style. Stdlib + git only."""
-import sys, os, re, json, hashlib, subprocess, time, threading, html, collections, fcntl, signal
+import sys, os, re, json, base64, hashlib, subprocess, time, threading, html, collections, fcntl, signal
 from contextlib import contextmanager
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -531,7 +531,9 @@ def render_html(files, state, target):
             'cwd': state['cwd'], 'focus': state.get('focus'), 'diff_rev': state.get('diff_rev'), 'expandable': target['mode'] != 'pr' or bool(target.get('head_sha'))}
     js_data = json.dumps(data, ensure_ascii=False).replace('</', '<\\/')
     page = rd('viewer.html')
-    for k, v in (('{{CSS}}', rd('viewer.css')), ('{{JS}}', rd('viewer.js')), ('{{DATA}}', js_data), ('{{TITLE}}', html.escape(target['desc']))):
+    with open(os.path.join(HERE, 'favicon.ico'), 'rb') as fh:
+        icon = base64.b64encode(fh.read()).decode()
+    for k, v in (('{{CSS}}', rd('viewer.css')), ('{{JS}}', rd('viewer.js')), ('{{DATA}}', js_data), ('{{TITLE}}', html.escape(target['desc'])), ('{{ICON}}', icon)):
         page = page.replace(k, v)
     return page.encode('utf-8')
 
