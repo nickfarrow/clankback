@@ -533,7 +533,7 @@ def render_html(files, state, target):
     page = rd('viewer.html')
     with open(os.path.join(HERE, 'favicon.ico'), 'rb') as fh:
         icon = base64.b64encode(fh.read()).decode()
-    for k, v in (('{{CSS}}', rd('viewer.css')), ('{{JS}}', rd('viewer.js')), ('{{DATA}}', js_data), ('{{TITLE}}', html.escape(target['desc'])), ('{{ICON}}', icon)):
+    for k, v in (('{{CSS}}', rd('viewer.css')), ('{{JS}}', rd('viewer.js')), ('{{DATA}}', js_data), ('{{TITLE}}', html.escape(os.path.basename(target.get('root') or state['cwd']))), ('{{ICON}}', icon)):
         page = page.replace(k, v)
     return page.encode('utf-8')
 
