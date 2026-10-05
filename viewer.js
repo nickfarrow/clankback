@@ -358,7 +358,7 @@ function threadEl(c) {
   t.onclick = e => {
     const a = e.target.dataset.a; if (!a) return;
     if (a === 'fold') { folded.add(c.id); mountThread(c); refreshCount(); }
-    else if (a === 'resolve') { const ta = t.querySelector('.tfoot textarea'), msg = ta.value.trim(); if (msg) (c.replies = c.replies || []).push({id: uid(), text: msg, created: Date.now() / 1000, by: 'you'}); c.resolved = !c.resolved; const p = save(c); if (msg) p.then(() => sendThread(c)); }
+    else if (a === 'resolve') { const ta = t.querySelector('.tfoot textarea'), msg = ta.value.trim(); if (msg) (c.replies = c.replies || []).push({id: uid(), text: msg, created: Date.now() / 1000, by: 'you'}); c.resolved = !c.resolved; save(c); }  // a reply typed here queues like Reply; the thread's Send button sends it now
     else if (a === 'send') { e.target.disabled = true; e.target.textContent = 'Sent'; sendThread(c); }
     else if (a === 'reply') { const ta = t.querySelector('.tfoot textarea'); if (!ta.value.trim()) return; (c.replies = c.replies || []).push({id: uid(), text: ta.value.trim(), created: Date.now() / 1000, by: 'you'}); save(c); }
   };
