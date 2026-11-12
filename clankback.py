@@ -413,7 +413,7 @@ def make_handler(rv):
             if not self._trusted():
                 return self._json({'error': 'forbidden'}, 403)
             u = urlparse(self.path)
-            rv.last_seen = time.time()
+            rv.last_seen = time.monotonic()
             if u.path == '/':
                 rv.refresh()  # every (re)load shows the current diff and comments
                 self.send_response(200)
@@ -448,11 +448,11 @@ def make_handler(rv):
             n = int(self.headers.get('Content-Length') or 0)
             body = json.loads(self.rfile.read(n) or b'{}') if n else {}
             p = self.path
-            rv.last_seen = time.time()
+            rv.last_seen = time.monotonic()
             if p == '/beat':
                 rv.bye_at = None
             elif p == '/bye':
-                rv.bye_at = time.time()
+                rv.bye_at = time.monotonic()
             elif p == '/prefs':
                 prefs = load_json(os.path.join(STATE_DIR, 'prefs.json'), {})
                 prefs.update(body)
@@ -546,15 +546,18 @@ def serve(spath):
     key, t = st['key'], st['t']
     rv = Review(spath, t, st['cwd'])
     rv.refresh()
-    srv = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(rv))
+    try:  # a port derived from the review key, so a tab left open outlives a daemon restart and reconnects
+        srv = ThreadingHTTPServer(('127.0.0.1', 30000 + int(key, 16) % 30000), make_handler(rv))
+    except OSError:
+        srv = ThreadingHTTPServer(('127.0.0.1', 0), make_handler(rv))
     rv.port = srv.server_address[1]
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     save_json(run_path(key), {'pid': os.getpid(), 'url': 'http://127.0.0.1:%d/' % srv.server_address[1]})
-    start = time.time()
+    start = time.monotonic()  # monotonic: a suspend must not read as a lost tab
     try:
         while not rv.finished.wait(1):
-            now = time.time()
+            now = time.monotonic()
             if rv.last_seen is None:
                 if now - start > 120:
                     break

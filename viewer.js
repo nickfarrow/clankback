@@ -17,14 +17,27 @@ const fmt = s => esc(s).split(/(```[^\n]*\n[\s\S]*?```\n?|`[^`\n]+`)/g).map((p, 
 const el = (tag, attrs, html) => { const e = document.createElement(tag); if (attrs) for (const k in attrs) { if (k === 'class') e.className = attrs[k]; else if (k.startsWith('on')) e.addEventListener(k.slice(2), attrs[k]); else e.setAttribute(k, attrs[k]); } if (html != null) e.innerHTML = html; return e; };
 const uid = () => { let id; do { id = Math.random().toString(36).slice(2, 7); } while (comments[id]); return id; };
 
+async function post(path, body) {
+  const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+  if (!r.ok) throw new Error(r.status);
+  return await r.json();
+}
+// Writes that fail because the daemon is gone wait in localStorage (the port is per review, so the origin is too) and replay when it is back.
+const QKEY = 'clankback:queue', queue = (() => { try { return JSON.parse(localStorage.getItem(QKEY)) || []; } catch (e) { return []; } })();
+const saveQueue = () => { try { localStorage.setItem(QKEY, JSON.stringify(queue)); } catch (e) {} };
 async function api(path, body) {
   try {
-    const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
-    if (!r.ok) throw new Error(r.status);
-    return await r.json();
+    return await post(path, body);
   } catch (e) {
-    if (!finished) banner('clankback is not running, so comments are not being saved. Re-run /clankback, then reload this page.');
+    if (finished) return;
+    if (path !== '/beat' && path !== '/bye') { queue.push({path, body}); saveQueue(); }
+    banner('clankback is not running. Your comments are kept in this tab and saved once you re-run /clankback.');
   }
+}
+async function flushQueue() {  // in order; stop at the first failure and try again next poll
+  const n = queue.length;
+  while (queue.length) { await post(queue[0].path, queue[0].body); queue.shift(); saveQueue(); }
+  if (n) { banner(''); toast('clankback is back. ' + n + ' queued change' + (n === 1 ? '' : 's') + ' saved.'); }
 }
 let diffRev = D.diff_rev;
 function banner(msg) { const b = $('#banner'); b.textContent = msg; b.hidden = !msg; }
@@ -412,7 +425,7 @@ async function sendThread(c) {  // one thread only; the top button sends everyth
   await api('/send', {id: c.id}); toast('Sent this thread to the clanker.');
 }
 async function poll() {  // pick up replies and resolves made from the terminal
-  let r; try { r = await (await fetch('/state')).json(); } catch (e) { return; }
+  let r; try { await flushQueue(); r = await (await fetch('/state')).json(); } catch (e) { return; }
   if (!r || !r.comments) return;
   let changed = false, fresh = null;
   for (const id in r.comments) {
