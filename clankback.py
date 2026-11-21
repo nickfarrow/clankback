@@ -457,7 +457,7 @@ def make_handler(rv):
                 prefs = load_json(os.path.join(STATE_DIR, 'prefs.json'), {})
                 prefs.update(body)
                 save_json(os.path.join(STATE_DIR, 'prefs.json'), prefs)
-            elif p in ('/comment', '/viewed', '/send', '/finish', '/seen'):
+            elif p in ('/comment', '/viewed', '/send', '/finish', '/seen', '/clear'):
                 with locked_state(rv.spath) as st:
                     if p == '/comment':
                         c = body['comment']
@@ -482,6 +482,8 @@ def make_handler(rv):
                             for x in [c] + c.get('replies', []):
                                 if x.get('id') in ids:
                                     x['seen'] = True
+                    elif p == '/clear':
+                        st['comments'] = {}
                     else:
                         st['send_seq'] = st.get('send_seq', 0) + 1
                         if p == '/finish':

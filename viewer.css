@@ -180,7 +180,7 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .sumitem .where .q { color:var(--accent); }
 .sumitem .txt { white-space:pre-wrap; word-break:break-word; margin-top:3px; }
 .sumitem.outdated:not(.resolved) { border-color:var(--warn-line); }
-.sumfoot { padding:10px 12px; border-top:1px solid var(--border); }
+.sumfoot { padding:10px 12px; border-top:1px solid var(--border); display:flex; justify-content:space-between; }
 
 /* overlays */
 #done { position:fixed; inset:0; background:rgba(8,10,14,.8); display:flex; align-items:center; justify-content:center; z-index:50; }

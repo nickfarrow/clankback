@@ -589,6 +589,13 @@ function point(el) {  // blink until the mouse reaches it
   el.addEventListener('mouseenter', () => el.classList.remove('pointed'), {once: true});
 }
 function toggleSummary(on) { const s = $('#summary'); s.hidden = on == null ? !s.hidden : !on; if (!s.hidden) buildSummary(); }
+async function clearAll() {
+  const n = Object.keys(comments).length;
+  if (!n || !confirm('Delete all ' + n + ' comment' + (n === 1 ? '' : 's') + ' in this review? This cannot be undone.')) return;
+  await api('/clear');
+  for (const id in comments) { delete comments[id]; unmountThread(id); }
+  refreshCount(); buildSummary(); toast('All comments deleted.');
+}
 async function finish() {
   if (!confirm('Finish the review? Unsent comments go to Claude and the review closes.')) return;
   finished = true; await api('/finish'); $('#done').hidden = false;
@@ -642,7 +649,7 @@ $('#viewToggle').onclick = toggleView; $('#sideToggle').onclick = toggleSide;
 if (D.prefs && D.prefs.sidebar === false) $('#side').classList.add('hidden');
 $('#summaryBtn').onclick = () => toggleSummary(); $('#closeSummary').onclick = () => toggleSummary(false);
 $('#claudeBtn').onclick = () => nextFromClaude(1); $('#openBtn').onclick = () => nextOpen(1); $('#foldBtn').onclick = () => foldAll(true); $('#foldAllBtn').onclick = () => foldAll(false);
-$('#finishBtn').onclick = finish; $('#sendBtn').onclick = send; $('#sendBtn2').onclick = send;
+$('#finishBtn').onclick = finish; $('#sendBtn').onclick = send; $('#sendBtn2').onclick = send; $('#clearBtn').onclick = clearAll;
 setInterval(() => { if (!finished) poll(); }, 2000);
 if (Object.values(comments).some(c => c.outdated)) banner('Some comments point at code that has changed since. They are marked OUTDATED in the comments list.');
 if (Object.keys(comments).length) toggleSummary(true);
