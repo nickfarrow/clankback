@@ -305,9 +305,12 @@ def run_info(key):
         return None
     try:
         os.kill(info['pid'], 0)
-        return info
+        with open('/proc/%d/status' % info['pid']) as fh:  # a zombie still answers the signal
+            if 'State:\tZ' in fh.read(400):
+                return None
     except OSError:
         return None
+    return info
 
 
 def attach_comments(files, comments):
