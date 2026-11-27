@@ -17,6 +17,15 @@ def msg(i, by, t, **kw):
     return r
 
 
+class Target(unittest.TestCase):
+    def test_pr_number_with_hash(self):
+        here = cb.os.path.dirname(cb.os.path.abspath(cb.__file__))
+        opts = {'staged': False}
+        for arg in ('676', '#676'):
+            t = cb.resolve_target(opts, [arg], [], here)
+            self.assertEqual((t['mode'], t['pr']), ('pr', 676))
+
+
 class MergeComment(unittest.TestCase):
     def test_new_thread_from_browser_is_unsent(self):
         c = cb.merge_comment({}, thread(sent=True))

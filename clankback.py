@@ -72,8 +72,8 @@ def resolve_target(opts, pos, paths, cwd):
     for p in pos:
         if os.path.exists(p):
             t['paths'].append(p)
-        elif p.isdigit():
-            t['pr'] = int(p)
+        elif p.lstrip('#').isdigit():  # '#676', as people write PR numbers
+            t['pr'] = int(p.lstrip('#'))
         elif run(GIT + ['rev-parse', '--verify', '--quiet', p + '^{tree}'], cwd).returncode == 0:
             t['ref'] = p
         else:
