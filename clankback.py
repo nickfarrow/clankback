@@ -1161,7 +1161,8 @@ def main(argv):
             if p.get('key') != key:
                 notes.append('Also pending: %s in %s (%d comments). `--resume` reopens the most recent.' % (p.get('target'), p.get('cwd'), len(p.get('comments', {}))))
                 break
-    print('\n'.join(notes + [wait_for_round(spath, key, t['desc'])]))
+        print('\n'.join(['Opened %s at %s' % (t['desc'], info['url'])] + notes), flush=True)  # before blocking, so a background caller can announce it
+    print(wait_for_round(spath, key, t['desc']))
 
 
 if __name__ == '__main__':
