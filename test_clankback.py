@@ -172,5 +172,46 @@ class GhMerge(unittest.TestCase):
         self.assertIn('> bob on GitHub: agree', out)
 
 
+class GhPost(unittest.TestCase):
+    GH = {'repo': 'o/r', 'number': 7}
+    FILES = [{'path': 'f.py', 'hunks': [{'hash': 'h1', 'lines': [
+        [' ', 'a', 1, 1, False], ['-', 'b', 2, None, False], ['+', 'B', None, 2, False], ['+', 'C', None, 3, False]]}]}]
+
+    def req(self, head='sha', **kw):
+        c = {'file': 'f.py', 'hunk': 'h1', 'offset': 2, 'end_offset': None, 'side': 'new'}
+        c.update(kw)
+        return cb.gh_post_request(c, self.GH, self.FILES, head)
+
+    def test_thread_on_github_gets_a_reply_in_any_mode(self):
+        self.assertEqual(self.req(head=None, gh={'top': 55}), ('repos/o/r/pulls/7/comments/55/replies', {}))
+
+    def test_added_line(self):
+        self.assertEqual(self.req(), ('repos/o/r/pulls/7/comments', {'commit_id': 'sha', 'path': 'f.py', 'side': 'RIGHT', 'line': 2}))
+
+    def test_removed_line_and_context_on_the_old_side(self):
+        self.assertEqual(self.req(offset=1, side='old')[1], {'commit_id': 'sha', 'path': 'f.py', 'side': 'LEFT', 'line': 2})
+        self.assertEqual(self.req(offset=0, side='old')[1]['line'], 1)
+
+    def test_range_dragged_upwards(self):
+        self.assertEqual(self.req(offset=3, end_offset=2)[1], {'commit_id': 'sha', 'path': 'f.py', 'side': 'RIGHT', 'line': 3, 'start_side': 'RIGHT', 'start_line': 2})
+
+    def test_new_comment_needs_pr_mode_and_a_live_line(self):
+        self.assertIsNone(self.req(head=None)[0])
+        self.assertIsNone(self.req(outdated=True)[0])
+
+    def test_asking_for_a_draft_puts_it_in_the_round(self):
+        st = {'cwd': '/r', 'comments': {'aaaaa': thread(sent=True, draft={'text': 'lgtm but rename x', 'sent': False})}}
+        out = cb.report(st, 'PR #7')
+        self.assertIn("DRAFT a GitHub comment for this thread (the user's draft; polish it):\n  | lgtm but rename x", out)
+        self.assertTrue(st['comments']['aaaaa']['draft']['sent'])
+
+    def test_what_the_user_posted_is_shown_once_with_the_thread(self):
+        posted = msg('r1', 'you', 2.0, text='Kept it.', gh_id=101, sent=True, quiet=True)
+        st = {'cwd': '/r', 'comments': {'aaaaa': thread(sent=True, replies=[posted], draft={'text': '', 'sent': False})}}
+        self.assertIn('> you on GitHub: Kept it.', cb.report(st, 'PR #7'))
+        st['comments']['aaaaa']['draft']['sent'] = False
+        self.assertNotIn('Kept it.', cb.report(st, 'PR #7'))
+
+
 if __name__ == '__main__':
     unittest.main()

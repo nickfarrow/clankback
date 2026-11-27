@@ -377,7 +377,9 @@ function threadEl(c) {
       ? cm(c.text, byline(c) + ' · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
       : cm(c.text, byline(c) + ' · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + onGh + unsent(c), fold, who(c).cls, body, who(c).style)) +
     (c.replies || []).map(r => cm(r.text, byline(r) + (r.by === 'claude' ? '' : unsent(r)), '', who(r).cls, '', who(r).style)).join('') +
+    draftEl(c) +
     '<div class="tfoot"><textarea placeholder="Reply…"></textarea><button class="small" data-a="reply">Reply</button><button class="small" data-a="resolve">' + (c.resolved ? 'Unresolve' : 'Resolve') + '</button>' +
+    (canDraft(c) ? '<button class="small" data-a="draft" title="Start a comment for GitHub from what you typed here (or from nothing). You can ask the clanker to write or polish it, then post it.">Draft for GitHub</button>' : '') +
     (hasUnsent(c) ? '<button class="small primary" data-a="send" title="Send this thread to the clanker now">Send</button>' : '') + '</div>';
   t.onclick = e => {
     const a = e.target.dataset.a; if (!a) return;
@@ -385,10 +387,35 @@ function threadEl(c) {
     else if (a === 'resolve') { const ta = t.querySelector('.tfoot textarea'), msg = ta.value.trim(); if (msg) (c.replies = c.replies || []).push({id: uid(), text: msg, created: Date.now() / 1000, by: 'you'}); c.resolved = !c.resolved; save(c); }  // a reply typed here queues like Reply; the thread's Send button sends it now
     else if (a === 'send') { e.target.disabled = true; e.target.textContent = 'Sent'; sendThread(c); }
     else if (a === 'reply') { const ta = t.querySelector('.tfoot textarea'); if (!ta.value.trim()) return; (c.replies = c.replies || []).push({id: uid(), text: ta.value.trim(), created: Date.now() / 1000, by: 'you'}); save(c); }
+    else if (a === 'draft') { const text = t.querySelector('.tfoot textarea').value.trim(); c.draft = {text, claude: null, sent: true}; api('/draft', {id: c.id, text}); mountThread(c); const d = $('.thread[data-id="' + c.id + '"] .dtext'); if (d) d.focus(); }
+    else if (a === 'askd') { const text = t.querySelector('.dtext').value; c.draft = {...c.draft, text, sent: false}; api('/draft', {id: c.id, text, ask: true}); mountThread(c); toast('The clanker will write the draft. You post it.'); }
+    else if (a === 'discard') { if (c.draft.text.trim() && !confirm('Discard this GitHub draft?')) return; delete c.draft; api('/draft', {id: c.id, text: null}); mountThread(c); }
+    else if (a === 'post') postDraft(c, t, e.target);
   };
+  const dt = t.querySelector('.dtext');
+  if (dt) { let timer; dt.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { c.draft.text = dt.value; api('/draft', {id: c.id, text: dt.value}); }, 400); }; }
   t.querySelector('.tfoot textarea').onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) t.querySelector('[data-a="reply"]').click(); };
   t.addEventListener('mouseenter', () => markSeen(c), {once: true});
   return t;
+}
+// A thread can hold one draft for GitHub. It posts as a reply when the thread is on GitHub, else as a new line comment,
+// which only a review of the pull request itself can place (its lines are GitHub's lines).
+const linked = () => !!(ghInfo && ghInfo.number);
+const canPost = c => linked() && (!!(c.gh && c.gh.top) || (D.mode === 'pr' && !c.outdated));
+const canDraft = c => !c.draft && canPost(c);
+function draftEl(c) {
+  const d = c.draft; if (!d) return '';
+  const why = !linked() ? 'This review is not linked to a pull request.' : canPost(c) ? '' : D.mode === 'pr' ? 'This line is no longer in the diff.' : 'A new line comment can only be posted from a review of the pull request itself: /clankback ' + ghInfo.number;
+  return '<div class="draft"><div class="meta"><span><span class="by">Draft for GitHub</span>' + (d.sent === false ? ' · <span class="q">the clanker is writing it</span>' : d.claude != null && d.claude === d.text ? ' · written by the clanker' : '') +
+    ' · posts as ' + esc((ghInfo && ghInfo.login) || 'you') + '</span></div><textarea class="dtext" placeholder="What should GitHub see?">' + esc(d.text || '') + '</textarea>' +
+    '<div class="row"><button class="small primary" data-a="post"' + (why ? ' disabled title="' + esc(why) + '"' : '') + '>Post to GitHub</button><button class="small" data-a="askd" title="Ask the clanker to write or polish this draft">Ask clanker</button><button class="small" data-a="discard">Discard</button><span class="err">' + esc(why) + '</span></div></div>';
+}
+async function postDraft(c, t, btn) {  // never queued for later: a post happens now, on this click, or not at all
+  const text = t.querySelector('.dtext').value; if (!text.trim()) return;
+  btn.disabled = true; btn.textContent = 'Posting…'; const err = t.querySelector('.draft .err'); err.textContent = '';
+  let r; try { r = await post('/gh/post', {id: c.id, text}); } catch (e) { r = {error: 'clankback is not running, so nothing was posted.'}; }
+  if (r.error) { btn.disabled = false; btn.textContent = 'Post to GitHub'; err.textContent = r.error; return; }
+  toast('Posted to GitHub.'); poll();
 }
 function save(c) { comments[c.id] = c; mountThread(c); const p = api('/comment', {comment: c}); refreshCount(); return p; }
 const unseenIn = c => [c].concat(c.replies || []).filter(x => x.by === 'claude' && x.seen === false);
@@ -442,6 +469,7 @@ async function poll() {  // pick up replies and resolves made from the terminal
   for (const id in r.comments) {
     if (JSON.stringify(r.comments[id]) !== JSON.stringify(comments[id])) {
       const old = $('.thread[data-id="' + id + '"] .tfoot textarea'), draft = old && old.value, had = old && document.activeElement === old && [old.selectionStart, old.selectionEnd];
+      const od = $('.thread[data-id="' + id + '"] .dtext'), typingDraft = od && document.activeElement === od && [od.value, od.selectionStart, od.selectionEnd];  // the user's typing wins over a redraw
       const before = comments[id] ? unseenIn(comments[id]).length : 0, fromGh = x => [x].concat(x.replies || []).filter(ghAuthor);
       const arrived = comments[id] ? fromGh(r.comments[id]).slice(fromGh(comments[id]).length) : [];
       if (arrived.length) toast('New comment from ' + arrived[arrived.length - 1].by + ' on GitHub.');
@@ -449,6 +477,7 @@ async function poll() {  // pick up replies and resolves made from the terminal
       if (!fresh && unseenIn(comments[id]).length > before) fresh = comments[id];
       const nw = $('.thread[data-id="' + id + '"] .tfoot textarea'); if (nw && draft) nw.value = draft;
       if (nw && had) { nw.focus(); nw.setSelectionRange(had[0], had[1]); }
+      const nd = typingDraft && $('.thread[data-id="' + id + '"] .dtext'); if (nd) { nd.value = typingDraft[0]; nd.focus(); nd.setSelectionRange(typingDraft[1], typingDraft[2]); }
     }
   }
   for (const id in comments) if (!r.comments[id]) { delete comments[id]; unmountThread(id); changed = true; }
@@ -457,13 +486,16 @@ async function poll() {  // pick up replies and resolves made from the terminal
   if (r.diff_rev && diffRev && r.diff_rev !== diffRev) await reloadDiff();
   else if (Object.values(comments).some(c => fileIndex(c.file) < 0)) await reloadDiff(true);
   if (r.focus && r.focus.seq !== focusSeq) { focusSeq = r.focus.seq; showFocus(r.focus); }
-  if (JSON.stringify(r.gh || null) !== JSON.stringify(ghInfo)) showGh(r.gh);
+  if (JSON.stringify(r.gh || null) !== JSON.stringify(ghInfo)) {
+    const was = linked() + '|' + (ghInfo && ghInfo.login); showGh(r.gh);
+    if (was !== linked() + '|' + (ghInfo && ghInfo.login)) $$('.thread').forEach(t => mountThread(comments[t.dataset.id]));  // draft buttons depend on the link
+  }
   if (r.status === 'finished' && !finished) { finished = true; $('#done').hidden = false; }
 }
 let focusSeq = D.focus && D.focus.seq, ghInfo = null;
 function showGh(g) {  // the linked pull request, and whether GitHub is answering
   ghInfo = g || null; const s = $('#gh'), parts = [];
-  if (g && g.number) parts.push('<a href="' + esc(g.url) + '" target="_blank" rel="noopener" title="' + esc(g.repo) + '">PR #' + g.number + '</a>');
+  if (g && g.number) parts.push('<a href="' + esc(g.url) + '" target="_blank" rel="noopener" title="' + esc(g.repo) + '">' + (D.mode === 'pr' ? 'on GitHub' : 'PR #' + g.number) + '</a>');
   if (g && g.error) parts.push('<span class="err" title="' + esc(g.error) + '">GitHub error since ' + new Date(g.error_since * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + '</span>');
   s.innerHTML = parts.join(''); s.hidden = !parts.length;
 }
@@ -664,7 +696,7 @@ function toggleView() {
 function toggleSide() { const on = $('#side').classList.toggle('hidden'); api('/prefs', {sidebar: !on}); }
 
 // ---------------------------------------------------------------- init
-addOrphans(); buildSidebar(); buildFiles(); refreshCount(); showGh(D.gh);
+showGh(D.gh); addOrphans(); buildSidebar(); buildFiles(); refreshCount();
 $('#viewToggle').textContent = view === 'split' ? 'Unified' : 'Split';
 $('#viewToggle').onclick = toggleView; $('#sideToggle').onclick = toggleSide;
 if (D.prefs && D.prefs.sidebar === false) $('#side').classList.add('hidden');

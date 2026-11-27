@@ -484,6 +484,33 @@ def gh_sync(spath, gh, files):
             st.setdefault('send_ids', []).extend(wake)
 
 
+def gh_post_request(c, gh, files, head):
+    """The API path and body that put a comment on GitHub for thread c, or (None, reason).
+
+    A thread that is already on GitHub gets a reply. A local thread becomes a new line comment, which only a
+    review of the pull request itself can place, because only there are the page's lines GitHub's lines.
+    """
+    if (c.get('gh') or {}).get('top'):
+        return 'repos/%s/pulls/%d/comments/%d/replies' % (gh['repo'], gh['number'], c['gh']['top']), {}
+    if head is None:
+        return None, 'A new line comment can only be posted from a review of the pull request itself: /clankback %d' % gh['number']
+    h = next((h for f in files if f['path'] == c['file'] for h in f['hunks'] if h['hash'] == c.get('hunk')), None)
+    if h is None or c.get('outdated'):
+        return None, 'This line is no longer in the diff, so GitHub has nowhere to put the comment.'
+    def end(off):
+        l = h['lines'][min(off, len(h['lines']) - 1)]
+        left = l[0] == '-' or (l[0] == ' ' and c.get('side') == 'old')
+        return ('LEFT', l[2]) if left else ('RIGHT', l[3])
+    a = end(c['offset'])
+    b = end(c['end_offset']) if c.get('end_offset') is not None else a
+    if a[0] == b[0] and a[1] > b[1]:  # a range dragged upwards
+        a, b = b, a
+    body = {'commit_id': head, 'path': c['file'], 'side': b[0], 'line': b[1]}
+    if a != b:
+        body.update(start_side=a[0], start_line=a[1])
+    return 'repos/%s/pulls/%d/comments' % (gh['repo'], gh['number']), body
+
+
 def gh_find_pr(t):
     """The pull request a review belongs to: the one named, else the open one for the current branch.
     Returns (link, error); (None, None) means there is none."""
@@ -511,6 +538,36 @@ class Review:
         self.last_seen = self.bye_at = None
         self.files, self.html, self.cache, self.fp, self.port = [], b'', {}, None, None
         self.gh_lookup, self.gh_next, self.gh_busy = True, 0, False  # look the PR up at start and on each page load
+        self.posting = threading.Lock()  # one post at a time, so a double click cannot post twice
+
+    def gh_post(self, cid, text):
+        """Post the user's draft on thread cid to GitHub, as the user. Called only from the page's Post button."""
+        if not text.strip():
+            return {'error': 'The draft is empty.'}
+        if not self.posting.acquire(blocking=False):
+            return {'error': 'Already posting.'}
+        try:
+            st = load_json(self.spath, {})
+            c, gh = st.get('comments', {}).get(cid), st.get('gh') or {}
+            if not c or not c.get('draft') or not gh.get('number'):
+                return {'error': 'Nothing to post: the draft or the pull request link is gone.'}
+            path, body = gh_post_request(c, gh, self.files, self.target.get('head_sha') if self.target['mode'] == 'pr' else None)
+            if path is None:
+                return {'error': body}
+            body['body'] = text
+            resp, err = gh_json(['api', '-X', 'POST', path, '--input', '-'], self.target['root'], stdin=json.dumps(body))
+            if err:
+                return {'error': 'GitHub refused it: ' + err}
+            with locked_state(self.spath) as st:
+                c = st['comments'][cid]
+                c.setdefault('replies', []).append({'id': new_id(st), 'text': text, 'created': time.time(), 'by': 'you', 'gh_id': resp['id'],
+                                                    'sent': True, 'quiet': True, 'drafted': (c.get('draft') or {}).get('claude')})
+                c.pop('draft', None)
+                if not c.get('gh'):  # the next sync matches the new GitHub thread to this one by its first comment
+                    c['gh'] = {'thread': None, 'top': resp['id'], 'url': resp.get('html_url'), 'resolved': False, 'outdated': False}
+            return {'ok': True, 'url': resp.get('html_url')}
+        finally:
+            self.posting.release()
 
     def gh_tick(self):
         """Link the review to its pull request. Runs in its own thread, so a slow network never stalls the page."""
@@ -642,7 +699,9 @@ def make_handler(rv):
                 prefs = load_json(os.path.join(STATE_DIR, 'prefs.json'), {})
                 prefs.update(body)
                 save_json(os.path.join(STATE_DIR, 'prefs.json'), prefs)
-            elif p in ('/comment', '/viewed', '/send', '/finish', '/seen', '/clear'):
+            elif p == '/gh/post':
+                return self._json(rv.gh_post(body['id'], body.get('text') or ''))
+            elif p in ('/comment', '/viewed', '/send', '/finish', '/seen', '/clear', '/draft'):
                 with locked_state(rv.spath) as st:
                     if p == '/comment':
                         c = body['comment']
@@ -659,6 +718,17 @@ def make_handler(rv):
                                     x['seen'] = True
                     elif p == '/clear':
                         st['comments'] = {}
+                    elif p == '/draft':  # the user writes, edits or discards a thread's GitHub draft; ask hands it to the clanker
+                        c = st['comments'][body['id']]
+                        if body.get('text') is None:
+                            c.pop('draft', None)
+                        else:
+                            d = c.setdefault('draft', {'claude': None, 'created': time.time(), 'sent': True})
+                            d['text'] = body['text']
+                            if body.get('ask'):
+                                d['sent'] = False
+                                st['send_seq'] = st.get('send_seq', 0) + 1
+                                st.setdefault('send_ids', []).append(c['id'])
                     else:
                         st['send_seq'] = st.get('send_seq', 0) + 1
                         if p == '/finish':
@@ -705,7 +775,7 @@ def render_html(files, state, target):
             return fh.read()
     data = {'files': files, 'comments': state['comments'], 'viewed': state.get('viewed', []),
             'prefs': load_json(os.path.join(STATE_DIR, 'prefs.json'), {}), 'target': target['desc'],
-            'cwd': state['cwd'], 'focus': state.get('focus'), 'diff_rev': state.get('diff_rev'), 'gh': state.get('gh'), 'expandable': target['mode'] != 'pr' or bool(target.get('head_sha'))}
+            'cwd': state['cwd'], 'focus': state.get('focus'), 'diff_rev': state.get('diff_rev'), 'gh': state.get('gh'), 'mode': target['mode'], 'expandable': target['mode'] != 'pr' or bool(target.get('head_sha'))}
     js_data = json.dumps(data, ensure_ascii=False).replace('</', '<\\/')
     page = rd('viewer.html')
     with open(os.path.join(HERE, 'favicon.ico'), 'rb') as fh:
@@ -813,7 +883,8 @@ def report(st, desc, only=None):
     comments = [c for c in st['comments'].values() if only is None or c['id'] in only]
     order = {f['path']: i for i, f in enumerate(st.get('files', []))}
     fresh = [c for c in comments if not c.get('sent') or any(not r.get('sent') for r in c.get('replies', []))
-             or (c.get('by') == 'claude' and c.get('resolved') and not c.get('resolved_sent'))]
+             or (c.get('by') == 'claude' and c.get('resolved') and not c.get('resolved_sent'))
+             or (c.get('draft') and not c['draft'].get('sent'))]
     fresh.sort(key=lambda c: (order.get(c['file'], 10 ** 6), c.get('line') or 0))
     ncom = sum(1 for c in fresh if not c.get('sent'))
     nrep = sum(1 for c in fresh for r in c.get('replies', []) if not r.get('sent'))
@@ -861,13 +932,21 @@ def report(st, desc, only=None):
             if said:
                 out.append(indent('Claude had said: ' + (said.get('text') or '').strip()))
         for r in c.get('replies', []):
-            if not r.get('sent'):
-                who = '%s on GitHub' % gh_author(r) if gh_author(r) else 'reply'
+            if not r.get('sent') or (r.get('quiet') and not r.get('shown')):  # a quiet one (the user's own post, say) is context, shown once
+                who = '%s on GitHub' % gh_author(r) if gh_author(r) else 'you on GitHub' if r.get('gh_id') else 'reply'
                 out.append(indent('> %s: ' % who + r.get('text', '').strip().replace('\n', '\n  > ')))
-                r['sent'] = True
+                r['sent'] = r['shown'] = True
         if c.get('resolved'):
             out.append('  (resolved by the user)' if c.get('by') == 'claude' else '  (resolved)')
             c['resolved_sent'] = True
+        d = c.get('draft')
+        if d and not d.get('sent'):
+            if (d.get('text') or '').strip():
+                out.append('  DRAFT a GitHub comment for this thread (the user\'s draft; polish it):')
+                out.append(indent(d['text'], '  | '))
+            else:
+                out.append('  DRAFT a GitHub comment for this thread.')
+            d['sent'] = True
     return '\n'.join(out)
 
 
@@ -926,6 +1005,15 @@ def cmd_resolve(argv, on=True):
                 c.setdefault('replies', []).append({'id': new_id(st), 'text': note, 'created': time.time(), 'by': 'claude', 'sent': True, 'seen': False})
             c['resolved'] = on
     print(('Resolved' if on else 'Reopened') + ' ' + ' '.join('[%s]' % c for c in ids) + ('.' if not note else ' with a note.'))
+
+
+def cmd_draft(argv):
+    if len(argv) < 2:
+        die('Usage: clankback.py draft <id> <text>')
+    cid, text = argv[0], ' '.join(argv[1:]).strip()
+    with locked_state(find_state_for(cid)) as st:
+        st['comments'][cid]['draft'] = {'text': text, 'claude': text, 'created': time.time(), 'sent': True}
+    print('Drafted on [%s]. The user edits and posts it from the page.' % cid)
 
 
 def cmd_thread(argv):
@@ -1027,6 +1115,8 @@ def main(argv):
         return cmd_show(argv[1:])
     if argv[:1] == ['thread']:
         return cmd_thread(argv[1:])
+    if argv[:1] == ['draft']:
+        return cmd_draft(argv[1:])
     if argv[:1] == ['ask']:
         return cmd_ask(argv[1:])
     opts, pos, paths = parse_args(argv)
