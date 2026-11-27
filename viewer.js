@@ -348,24 +348,35 @@ function mountThread(c) {
 }
 function unmountThread(id) { const t = $('.thread[data-id="' + id + '"]'); if (!t) return; const cr = t.closest('tr.crow'); t.remove(); if (!cr.firstElementChild.children.length) cr.remove(); }
 const folded = new Set();  // thread ids shown as a one-line tab (page-local, not saved)
+const ghAuthor = x => x.gh_id && x.by && x.by !== 'you' && x.by !== 'claude' ? x.by : null;
+const PALETTE = ['#e3b341', '#d2a8ff', '#ff9bce', '#56d4dd', '#ffa657', '#a5d6ff'];
+function who(x) {  // label, class and colour for whoever wrote a message; each GitHub login keeps one colour
+  if (x.by === 'claude') return {name: 'Claude', cls: ' claude', style: ''};
+  const g = ghAuthor(x);
+  if (!g) return {name: 'You', cls: x.gh_id ? ' mine' : '', style: '', tail: x.gh_id ? ' · on GitHub' : ''};
+  let h = 0; for (const ch of g) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return {name: g, cls: ' gh', style: '--who:' + PALETTE[h % PALETTE.length], tail: ' · on GitHub'};
+}
+const byline = x => { const w = who(x); return '<span class="by">' + esc(w.name) + '</span>' + (w.tail || ''); };
 function threadEl(c) {
   const t = el('div', {class: 'thread' + (c.resolved ? ' resolved' : '') + (c.outdated ? ' outdated' : '') + (c.by === 'claude' ? ' claude' : '') + (waiting(c) ? ' waiting' : ''), 'data-id': c.id});
   if (folded.has(c.id)) {
     const n = 1 + (c.replies || []).length, first = c.text.split(/(?<=[.!?])\s|\n/)[0].slice(0, 120);
     t.classList.add('tab'); t.title = 'Expand thread';
-    t.innerHTML = '<span class="by">' + (c.by === 'claude' ? 'Claude' : 'You') + '</span> · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '<span class="txt">' + fmt(first) + '</span><span class="car down" title="Expand thread"></span>';
+    t.innerHTML = '<span class="by' + who(c).cls + '" style="' + who(c).style + '">' + esc(who(c).name) + '</span> · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + ' · ' + n + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '<span class="txt">' + fmt(first) + '</span><span class="car down" title="Expand thread"></span>';
     t.onclick = () => { folded.delete(c.id); mountThread(c); refreshCount(); };
     return t;
   }
-  const cm = (text, meta, extra, cls, body) => '<div class="cmt' + (cls || '') + '"><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div>' + (body || '<div class="txt">' + fmt(text) + '</div>') + '</div>';
+  const cm = (text, meta, extra, cls, body, style) => '<div class="cmt' + (cls || '') + '"' + (style ? ' style="' + style + '"' : '') + '><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div>' + (body || '<div class="txt">' + fmt(text) + '</div>') + '</div>';
   const rwBody = c => '<div class="rw"><div class="from">' + esc(c.selected) + '</div><div class="to">' + esc(c.text) + '</div></div>';
   const body = c.kind === 'rewrite' ? rwBody(c) : c.selected ? '<pre class="quote">' + esc(c.selected) + '</pre><div class="txt">' + fmt(c.text) + '</div>' : '';
   const unsent = x => (x.sent ? '' : ' <span class="unsent">· unsent</span>') + (x === c && c.outdated ? ' <span class="out">· ' + (c.gh ? 'not in this diff' : 'OUTDATED, line changed since') + '</span>' : '');
   const fold = '<button data-a="fold" class="car up" title="Collapse thread"></button>';
+  const onGh = c.gh ? (c.gh.resolved && !c.resolved ? ' · <span class="res">resolved on GitHub</span>' : '') + (c.gh.outdated ? ' · outdated on GitHub' : '') + ' · <a href="' + esc(c.gh.url) + '" target="_blank" rel="noopener">open</a>' : '';
   t.innerHTML = (c.by === 'claude'
-      ? cm(c.text, '<span class="by">Claude</span> · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
-      : cm(c.text, '<span class="by">You</span> · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + unsent(c), fold, '', body)) +
-    (c.replies || []).map(r => r.by === 'claude' ? cm(r.text, '<span class="by">Claude</span>', '', ' claude') : cm(r.text, '<span class="by">You</span>' + unsent(r))).join('') +
+      ? cm(c.text, byline(c) + ' · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
+      : cm(c.text, byline(c) + ' · ' + where(c) + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + onGh + unsent(c), fold, who(c).cls, body, who(c).style)) +
+    (c.replies || []).map(r => cm(r.text, byline(r) + (r.by === 'claude' ? '' : unsent(r)), '', who(r).cls, '', who(r).style)).join('') +
     '<div class="tfoot"><textarea placeholder="Reply…"></textarea><button class="small" data-a="reply">Reply</button><button class="small" data-a="resolve">' + (c.resolved ? 'Unresolve' : 'Resolve') + '</button>' +
     (hasUnsent(c) ? '<button class="small primary" data-a="send" title="Send this thread to the clanker now">Send</button>' : '') + '</div>';
   t.onclick = e => {
@@ -420,7 +431,7 @@ async function send() {
   await api('/send'); toast('Sent to the clanker. Replies appear here as they arrive.');
 }
 const hasUnsent = c => (!c.sent && c.by !== 'claude') || (c.replies || []).some(r => r.by !== 'claude' && !r.sent);
-const waiting = c => { const last = (c.replies || []).length ? c.replies[c.replies.length - 1] : c; return last.by !== 'claude' && !!last.sent; };  // the clanker has it, resolved or not
+const waiting = c => { const last = (c.replies || []).length ? c.replies[c.replies.length - 1] : c; return last.by !== 'claude' && !!last.sent && !last.quiet; };  // the clanker has it, resolved or not
 async function sendThread(c) {  // one thread only; the top button sends everything
   await api('/send', {id: c.id}); toast('Sent this thread to the clanker.');
 }
@@ -431,7 +442,9 @@ async function poll() {  // pick up replies and resolves made from the terminal
   for (const id in r.comments) {
     if (JSON.stringify(r.comments[id]) !== JSON.stringify(comments[id])) {
       const old = $('.thread[data-id="' + id + '"] .tfoot textarea'), draft = old && old.value, had = old && document.activeElement === old && [old.selectionStart, old.selectionEnd];
-      const before = comments[id] ? unseenIn(comments[id]).length : 0;
+      const before = comments[id] ? unseenIn(comments[id]).length : 0, fromGh = x => [x].concat(x.replies || []).filter(ghAuthor);
+      const arrived = comments[id] ? fromGh(r.comments[id]).slice(fromGh(comments[id]).length) : [];
+      if (arrived.length) toast('New comment from ' + arrived[arrived.length - 1].by + ' on GitHub.');
       comments[id] = r.comments[id]; mountThread(comments[id]); changed = true;
       if (!fresh && unseenIn(comments[id]).length > before) fresh = comments[id];
       const nw = $('.thread[data-id="' + id + '"] .tfoot textarea'); if (nw && draft) nw.value = draft;
@@ -577,7 +590,7 @@ function buildSummary() {
   cs.forEach(c => {
     if (c.file !== cur) { cur = c.file; list.append(el('h4', null, esc(c.file))); }
     const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '') + (folded.has(c.id) ? ' tab' : '')},
-      '<div class="where">' + (c.by === 'claude' ? 'Claude · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.outdated ? ' · OUTDATED' : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
+      '<div class="where">' + (c.by === 'claude' || ghAuthor(c) ? esc(who(c).name) + ' · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.outdated ? (c.gh ? ' · not in this diff' : ' · OUTDATED') : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
       (folded.has(c.id) ? '' : c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + fmt(c.text) + '</div>');
     it.onclick = () => jumpToComment(c); list.append(it);
   });

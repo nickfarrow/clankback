@@ -131,6 +131,8 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .cmt { padding:8px 11px; border-bottom:1px solid var(--border); }
 .cmt:last-of-type { border-bottom:none; }
 .cmt.claude { background:var(--accent-bg); }
+.cmt.gh { box-shadow:inset 3px 0 0 var(--who); } .cmt.gh .meta .by, .thread.tab .by.gh { color:var(--who); }  /* other people on GitHub, one colour each */
+.cmt .meta a { color:var(--muted); } .cmt .meta a:hover { color:var(--accent); }
 .cmt .meta { color:var(--muted); font-size:11px; margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .cmt .meta .grow { flex:1; }
 .cmt .meta .by { font-weight:600; color:var(--fg); }

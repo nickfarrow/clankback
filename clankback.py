@@ -450,6 +450,8 @@ def gh_merge(st, nodes, login, backlog):
             quiet = by == 'you' or n['isResolved']  # nothing for Claude to answer
             x = c if c['text'] is None else {'id': new_id(st), 'created': gh_ts(m['createdAt'])}
             x.update(text=m['body'], by=by, gh_id=m['databaseId'], sent=quiet)
+            if quiet:
+                x['quiet'] = True  # sent only so no round picks it up; Claude never had it
             if x is not c:
                 c['replies'].append(x)
             if not (quiet or backlog or by.endswith('[bot]') or m.get('authorAssociation') not in GH_WRITERS) and c['id'] not in wake:
