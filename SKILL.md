@@ -23,6 +23,7 @@ The review is a loop between the user's browser and this terminal. `CB=~/.claude
    A question comes with the answer you would pick and why.
    The user answers in the page, and it comes back in the next round like any other thread.
    To point at code without leaving a thread:  python3 $CB show <path>:<line>  or  show <id>
+   To read a whole thread you no longer have in context:  python3 $CB thread <id>...
 3. Run step 1 again in the background to wait for the next round. Repeat until the output
    says the review is finished or left pending.
 

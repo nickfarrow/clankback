@@ -658,6 +658,15 @@ def report(st, desc, only=None):
         else:
             who = ' (Claude asked)' if c.get('by') == 'claude' else ''
             out.append('- [%s] %s%s, earlier thread%s "%s"' % (c['id'], fmt_where(c), tag, who, (c.get('text') or '')[:60].replace('\n', ' ')))
+            # The writer may have lost its own answer to compaction or a new session, and the user's reply only makes sense against it.
+            said = None
+            for m in [c] + c.get('replies', []):
+                if not m.get('sent'):
+                    break
+                if m.get('by') == 'claude':
+                    said = m
+            if said:
+                out.append(indent('Claude had said: ' + (said.get('text') or '').strip()))
         for r in c.get('replies', []):
             if not r.get('sent'):
                 out.append(indent('> reply: ' + r.get('text', '').strip().replace('\n', '\n  > ')))
@@ -722,6 +731,22 @@ def cmd_resolve(argv, on=True):
                 c.setdefault('replies', []).append({'id': new_id(st), 'text': note, 'created': time.time(), 'by': 'claude', 'sent': True, 'seen': False})
             c['resolved'] = on
     print(('Resolved' if on else 'Reopened') + ' ' + ' '.join('[%s]' % c for c in ids) + ('.' if not note else ' with a note.'))
+
+
+def cmd_thread(argv):
+    """Print whole threads, for a writer that no longer has their earlier messages in context."""
+    if not argv:
+        die('Usage: clankback.py thread <id>...')
+    out = []
+    for cid in argv:
+        c = load_json(find_state_for(cid), {})['comments'][cid]
+        tags = ''.join(' (%s)' % k for k in ('resolved', 'outdated') if c.get(k))
+        out.append('[%s] %s %s%s%s' % (cid, c['file'], fmt_where(c), fmt_quote(c), tags))
+        if c.get('selected'):
+            out.append(indent(c['selected'], '  | '))
+        for m in [c] + c.get('replies', []):
+            out.append(indent(('Claude: ' if m.get('by') == 'claude' else 'user: ') + (m.get('text') or '').strip()))
+    print('\n'.join(out))
 
 
 def new_id(st):
@@ -804,6 +829,8 @@ def main(argv):
         return cmd_resolve(argv[1:], False)
     if argv[:1] == ['show']:
         return cmd_show(argv[1:])
+    if argv[:1] == ['thread']:
+        return cmd_thread(argv[1:])
     if argv[:1] == ['ask']:
         return cmd_ask(argv[1:])
     opts, pos, paths = parse_args(argv)
