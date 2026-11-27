@@ -41,7 +41,7 @@ async function flushQueue() {  // in order; stop at the first failure and try ag
 }
 let diffRev = D.diff_rev;
 function banner(msg) { const b = $('#banner'); b.textContent = msg; b.hidden = !msg; }
-async function reloadDiff() {  // the working tree changed: re-render in place, keep scroll and drafts
+async function reloadDiff(quiet) {  // the working tree changed (or a thread arrived on a file with no section): re-render in place, keep scroll and drafts
   let r; try { r = await (await fetch('/data')).json(); } catch (e) { return; }
   if (!r || !r.files) return;
   diffRev = r.diff_rev;
@@ -57,7 +57,7 @@ async function reloadDiff() {  // the working tree changed: re-render in place, 
   if (actId) { const ta = $('.thread[data-id="' + actId + '"] .tfoot textarea'); if (ta) { ta.focus(); ta.setSelectionRange(sel[0], sel[1]); } }
   if (keep) reopenComposer(keep);
   main.scrollTop = top; refreshCount();
-  toast('The files changed on disk. Diff reloaded.');
+  if (!quiet) toast('The files changed on disk. Diff reloaded.');
 }
 
 // ---------------------------------------------------------------- syntax highlighting
@@ -231,7 +231,7 @@ function renderFile(i, force) {
   if (f.orphan) {  // one row to hang the threads on
     const tbl = el('table', {class: 'diff'}), tb = el('tbody'); body.append(tbl);
     tbl.innerHTML = view === 'split' ? '<colgroup><col class="cn"><col><col class="cn"><col></colgroup>' : '<colgroup><col class="cn"><col class="cn"><col></colgroup>'; tbl.append(tb);
-    tb.append(el('tr', {class: 'hunk'}, '<td colspan="' + (view === 'split' ? 4 : 3) + '">No longer in the diff. These threads refer to an earlier version of the file.</td>'));
+    tb.append(el('tr', {class: 'hunk'}, '<td colspan="' + (view === 'split' ? 4 : 3) + '">' + (Object.values(comments).every(c => c.file !== f.path || c.gh) ? 'Not in this diff. These threads are on the pull request.' : 'No longer in the diff. These threads refer to an earlier version of the file.') + '</td>'));
     Object.values(comments).forEach(c => { if (c.file === f.path) mountThread(c); });
     return;
   }
@@ -360,7 +360,7 @@ function threadEl(c) {
   const cm = (text, meta, extra, cls, body) => '<div class="cmt' + (cls || '') + '"><div class="meta"><span>' + meta + '</span><span class="grow"></span>' + (extra || '') + '</div>' + (body || '<div class="txt">' + fmt(text) + '</div>') + '</div>';
   const rwBody = c => '<div class="rw"><div class="from">' + esc(c.selected) + '</div><div class="to">' + esc(c.text) + '</div></div>';
   const body = c.kind === 'rewrite' ? rwBody(c) : c.selected ? '<pre class="quote">' + esc(c.selected) + '</pre><div class="txt">' + fmt(c.text) + '</div>' : '';
-  const unsent = x => (x.sent ? '' : ' <span class="unsent">· unsent</span>') + (x === c && c.outdated ? ' <span class="out">· OUTDATED, line changed since</span>' : '');
+  const unsent = x => (x.sent ? '' : ' <span class="unsent">· unsent</span>') + (x === c && c.outdated ? ' <span class="out">· ' + (c.gh ? 'not in this diff' : 'OUTDATED, line changed since') + '</span>' : '');
   const fold = '<button data-a="fold" class="car up" title="Collapse thread"></button>';
   t.innerHTML = (c.by === 'claude'
       ? cm(c.text, '<span class="by">Claude</span> · ' + where(c) + (c.resolved ? ' · <span class="res">resolved</span>' : ' · <span class="q">for you to answer or resolve</span>') + unsent(c), fold, ' claude')
@@ -442,6 +442,7 @@ async function poll() {  // pick up replies and resolves made from the terminal
   if (changed) refreshCount();
   if (fresh && !$('.pointed') && !typing()) jumpToComment(fresh);  // never yank the page while the user types
   if (r.diff_rev && diffRev && r.diff_rev !== diffRev) await reloadDiff();
+  else if (Object.values(comments).some(c => fileIndex(c.file) < 0)) await reloadDiff(true);
   if (r.focus && r.focus.seq !== focusSeq) { focusSeq = r.focus.seq; showFocus(r.focus); }
   if (JSON.stringify(r.gh || null) !== JSON.stringify(ghInfo)) showGh(r.gh);
   if (r.status === 'finished' && !finished) { finished = true; $('#done').hidden = false; }
@@ -658,7 +659,7 @@ $('#summaryBtn').onclick = () => toggleSummary(); $('#closeSummary').onclick = (
 $('#claudeBtn').onclick = () => nextFromClaude(1); $('#openBtn').onclick = () => nextOpen(1); $('#foldBtn').onclick = () => foldAll(true); $('#foldAllBtn').onclick = () => foldAll(false);
 $('#finishBtn').onclick = finish; $('#sendBtn').onclick = send; $('#sendBtn2').onclick = send; $('#clearBtn').onclick = clearAll;
 setInterval(() => { if (!finished) poll(); }, 2000);
-if (Object.values(comments).some(c => c.outdated)) banner('Some comments point at code that has changed since. They are marked OUTDATED in the comments list.');
+if (Object.values(comments).some(c => c.outdated && !c.gh)) banner('Some comments point at code that has changed since. They are marked OUTDATED in the comments list.');
 if (Object.keys(comments).length) toggleSummary(true);
 setInterval(() => { if (!finished) api('/beat'); }, 5000);
 window.addEventListener('pagehide', () => { if (!finished) try { navigator.sendBeacon('/bye', '{}'); } catch (e) {} });

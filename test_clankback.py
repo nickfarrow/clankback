@@ -97,5 +97,80 @@ class FindPr(unittest.TestCase):
         self.assertEqual(cb.gh_json(['api', 'x'], '/r'), (None, 'Validation Failed; line must be part of the diff'))
 
 
+def gh_msg(i, login, body, assoc='COLLABORATOR', kind='User', hunk='@@ -1,2 +1,2 @@\n a\n+B'):
+    return {'databaseId': i, 'author': {'__typename': kind, 'login': login}, 'authorAssociation': assoc, 'body': body,
+            'createdAt': '2026-11-20T10:00:%02dZ' % (i % 60), 'diffHunk': hunk, 'url': 'https://github.com/o/r/pull/7#discussion_r%d' % i}
+
+
+def gh_thread(tid, *msgs, resolved=False, line=2):
+    return {'id': tid, 'isResolved': resolved, 'isOutdated': False, 'path': 'f.py', 'line': line, 'originalLine': line,
+            'diffSide': 'RIGHT', 'comments': {'nodes': list(msgs)}}
+
+
+class GhMerge(unittest.TestCase):
+    def setUp(self):
+        self.st = {'comments': {}}
+
+    def merge(self, nodes, backlog=False):
+        return cb.gh_merge(self.st, nodes, 'me', backlog)
+
+    def only(self):
+        (c,) = self.st['comments'].values()
+        return c
+
+    def test_new_thread_is_anchored_by_its_line_and_starts_a_round(self):
+        wake = self.merge([gh_thread('T1', gh_msg(1, 'alice', 'why B?'))])
+        c = self.only()
+        self.assertEqual(wake, [c['id']])
+        self.assertEqual((c['by'], c['text'], c['line'], c['line_text'], c['sent'], c['gh']['top']), ('alice', 'why B?', 2, '+B', False, 1))
+
+    def test_backlog_is_unsent_but_does_not_start_a_round(self):
+        self.assertEqual(self.merge([gh_thread('T1', gh_msg(1, 'alice', 'x'))], backlog=True), [])
+        self.assertFalse(self.only()['sent'])
+
+    def test_only_collaborators_start_a_round(self):
+        nodes = [gh_thread('T1', gh_msg(1, 'stranger', 'x', assoc='NONE')), gh_thread('T2', gh_msg(2, 'copilot', 'x', kind='Bot')),
+                 gh_thread('T3', gh_msg(3, 'me', 'note to self')), gh_thread('T4', gh_msg(4, 'alice', 'x'), resolved=True)]
+        self.assertEqual(self.merge(nodes), [])
+        by = {c['gh']['thread']: c for c in self.st['comments'].values()}
+        self.assertEqual(by['T2']['by'], 'copilot[bot]')
+        self.assertEqual((by['T3']['by'], by['T3']['sent']), ('you', True))
+        self.assertTrue(by['T4']['sent'])
+        self.assertFalse(by['T1']['sent'])
+
+    def test_resync_adds_only_new_replies_and_takes_edits(self):
+        self.merge([gh_thread('T1', gh_msg(1, 'alice', 'x'))], backlog=True)
+        c = self.only()
+        c['sent'] = True  # Claude has seen it
+        wake = self.merge([gh_thread('T1', gh_msg(1, 'alice', 'x, edited'), gh_msg(2, 'bob', 'agree'))])
+        self.assertEqual(wake, [c['id']])
+        self.assertEqual(c['text'], 'x, edited')
+        self.assertEqual([(r['by'], r['text'], r['sent']) for r in c['replies']], [('bob', 'agree', False)])
+        self.assertEqual(self.merge([gh_thread('T1', gh_msg(1, 'alice', 'x, edited'), gh_msg(2, 'bob', 'agree'))]), [])
+        self.assertEqual(len(c['replies']), 1)
+
+    def test_a_thread_posted_from_here_is_matched_by_its_first_comment(self):
+        self.st['comments']['local'] = {'id': 'local', 'file': 'f.py', 'text': 'mine', 'by': 'you', 'gh_id': 9, 'replies': [],
+                                        'gh': {'top': 9}, 'sent': True}
+        self.merge([gh_thread('T9', gh_msg(9, 'me', 'mine'), gh_msg(10, 'alice', 'ok'))])
+        c = self.only()
+        self.assertEqual((c['gh']['thread'], [r['by'] for r in c['replies']]), ('T9', ['alice']))
+
+    def test_anchor_matches_text_when_the_line_is_context_locally(self):
+        self.merge([gh_thread('T1', gh_msg(1, 'alice', 'x'))])
+        files = [{'path': 'f.py', 'hunks': [{'hash': 'h1', 'lines': [[' ', 'a', 1, 1, False], [' ', 'B', 2, 2, False]]}]}]
+        cb.attach_comments(files, self.st['comments'])
+        c = self.only()
+        self.assertEqual((c['outdated'], c['hunk'], c['offset']), (False, 'h1', 1))
+
+    def test_round_labels_github_authors(self):
+        self.merge([gh_thread('T1', gh_msg(1, 'alice', 'why?'), gh_msg(2, 'bob', 'agree'))])
+        self.st.update(cwd='/r', gh={'number': 7, 'url': 'https://github.com/o/r/pull/7', 'head': 'abc'})
+        out = cb.report(self.st, 'PR #7')
+        self.assertIn('Pull request https://github.com/o/r/pull/7, head abc', out)
+        self.assertIn('alice on GitHub:\n  why?', out)
+        self.assertIn('> bob on GitHub: agree', out)
+
+
 if __name__ == '__main__':
     unittest.main()
