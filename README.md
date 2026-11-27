@@ -24,7 +24,7 @@ git clone <this repo> ~/repos/clankback
 ln -s ~/repos/clankback ~/.claude/skills/clankback
 ```
 
-It needs python3 and git. `gh` is only needed to review a GitHub pull request.
+It needs python3 and git. `gh`, logged in, is only needed for GitHub pull requests.
 
 ## What you can review
 
@@ -60,6 +60,14 @@ it is working on, and a thread flashes white when it answers or points at a line
 | `/` | filter files |
 | `?` | this list |
 
+## With a GitHub pull request
+
+When the branch has an open pull request on GitHub, or you review one with `/clankback 1234`, the page links to it and brings in its review threads every 30 seconds while the tab is open. Each GitHub author has their own colour. A new comment from someone with write access goes to Claude straight away; threads that were already there wait for your Send, and resolved ones are only shown.
+
+Claude's replies stay in the page. To answer on GitHub, click "Draft for GitHub" on a thread, write the comment or click "Ask clanker" to have it written or polished, then "Post to GitHub". It posts through `gh` as you: a reply when the thread is on GitHub, or a new line comment when you are reviewing the pull request itself (`/clankback 1234`), the only mode where the page's lines are GitHub's lines. Nothing is posted without that click.
+
+The PR lookup checks the git remotes first, so a repo with no GitHub remote makes no network call.
+
 Comments are saved as you type them, so a reload costs you nothing. When the files change on disk
 the diff re-renders in place and keeps your scroll position, so you can leave the tab open while
 Claude edits.
@@ -69,4 +77,4 @@ Claude edits.
 One Python file, standard library only. `clankback.py` starts a small server on localhost and serves
 a single page to it. Review state lives in `~/.cache/clankback`, which is what lets a review survive
 a closed tab. Claude answers from the terminal with `clankback.py reply <id>`, `resolve <id>`, `unresolve <id>`,
-`ask <path>:<line>` and `show <id>`, and each one appears in the page within a couple of seconds.
+`ask <path>:<line>`, `show <id>` and `draft <id>`, and each one appears in the page within a couple of seconds. The tests run with `python3 -m unittest test_clankback`.

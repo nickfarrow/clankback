@@ -718,6 +718,7 @@ def make_handler(rv):
                                     x['seen'] = True
                     elif p == '/clear':
                         st['comments'] = {}
+                        (st.get('gh') or {}).pop('synced', None)  # threads the next sync brings back are backlog, not news
                     elif p == '/draft':  # the user writes, edits or discards a thread's GitHub draft; ask hands it to the clanker
                         c = st['comments'][body['id']]
                         if body.get('text') is None:
