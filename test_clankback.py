@@ -95,6 +95,9 @@ class FindPr(unittest.TestCase):
     def test_api_error_body_is_the_message(self):
         self.gh = Fake(1, stdout='{"message":"Validation Failed","errors":["line must be part of the diff"]}', stderr='gh: Validation Failed (HTTP 422)\n')
         self.assertEqual(cb.gh_json(['api', 'x'], '/r'), (None, 'Validation Failed; line must be part of the diff'))
+        # the shape GitHub really returns for a line outside the diff (seen live on 2026-11-27)
+        self.gh = Fake(1, stdout='{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment","code":"custom","field":"pull_request_review_thread.line","message":"could not be resolved"}]}')
+        self.assertEqual(cb.gh_json(['api', 'x'], '/r'), (None, 'Validation Failed; pull_request_review_thread.line could not be resolved'))
 
 
 def gh_msg(i, login, body, assoc='COLLABORATOR', kind='User', hunk='@@ -1,2 +1,2 @@\n a\n+B'):

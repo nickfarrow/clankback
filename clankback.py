@@ -395,7 +395,7 @@ def gh_json(args, cwd, stdin=None):
     if r.returncode != 0:  # gh also prints hints on stderr, so only a failing exit counts
         try:
             body = json.loads(r.stdout)
-            msg = '; '.join([body.get('message', '')] + [e.get('message', '') if isinstance(e, dict) else str(e) for e in body.get('errors', [])])
+            msg = '; '.join([body.get('message', '')] + [' '.join(filter(None, (e.get('field'), e.get('message')))) if isinstance(e, dict) else str(e) for e in body.get('errors', [])])
         except (ValueError, AttributeError):
             msg = ''
         err = [l for l in r.stderr.strip().split('\n') if l.strip() and not l.startswith('hint:')]
