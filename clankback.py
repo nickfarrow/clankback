@@ -343,6 +343,42 @@ def attach_comments(files, comments):
             c['end_line'] = ln(c['end_offset'])
 
 
+SERVER_OWNED = ('sent', 'resolved_sent', 'gh', 'gh_id', 'draft')
+
+
+def merge_comment(old, c):
+    """The browser's copy of a thread, merged over the saved one.
+
+    The browser may be up to one poll behind, so it can lack replies the CLI or a sync added since,
+    and it never authors anything but the user's own text. Everything else is kept from the saved copy.
+    """
+    def keep(o, n):
+        for k in SERVER_OWNED:
+            if k in o:
+                n[k] = o[k]
+            else:
+                n.pop(k, None)
+        if 'seen' in o:
+            n['seen'] = o['seen']
+        if o.get('by') not in (None, 'you'):
+            n['by'], n['text'] = o['by'], o.get('text', n.get('text'))
+        return n
+    if not old:
+        c['sent'] = False
+        return c
+    keep(old, c)
+    oldr = {r['id']: r for r in old.get('replies', [])}
+    mine = {r['id'] for r in c.get('replies', [])}
+    for r in c.get('replies', []):
+        if r['id'] in oldr:
+            keep(oldr[r['id']], r)
+        else:
+            r['sent'] = False
+    c['replies'] = sorted(c.get('replies', []) + [r for r in old.get('replies', []) if r['id'] not in mine],
+                          key=lambda r: r.get('created') or 0)
+    return c
+
+
 # ---------------------------------------------------------------- server (daemon)
 
 class Review:
@@ -464,17 +500,7 @@ def make_handler(rv):
                 with locked_state(rv.spath) as st:
                     if p == '/comment':
                         c = body['comment']
-                        old = st['comments'].get(c['id'], {})
-                        c['sent'] = old.get('sent', False)
-                        if old.get('by') == 'claude':
-                            c['by'], c['seen'], c['text'] = 'claude', old.get('seen', True), old.get('text', c.get('text'))
-                        oldr = {r['id']: r for r in old.get('replies', [])}
-                        for r in c.get('replies', []):
-                            o = oldr.get(r['id'], {})
-                            r['sent'] = o.get('sent', r.get('by') == 'claude')
-                            if 'seen' in o:
-                                r['seen'] = o['seen']
-                        st['comments'][c['id']] = c
+                        st['comments'][c['id']] = merge_comment(st['comments'].get(c['id'], {}), c)
                     elif p == '/viewed':
                         v = set(st.get('viewed', []))
                         (v.add if body['viewed'] else v.discard)(body['path'])
