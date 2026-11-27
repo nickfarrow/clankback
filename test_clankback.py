@@ -52,5 +52,50 @@ class MergeComment(unittest.TestCase):
         self.assertNotIn('gh', c)
 
 
+class Fake:
+    def __init__(self, returncode=0, stdout='', stderr=''):
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+class FindPr(unittest.TestCase):
+    T = {'mode': 'working', 'root': '/r', 'pr': None}
+
+    def setUp(self):
+        self.real, self.calls, self.remote, self.gh = cb.run, [], 'origin\tgit@github.com:o/r.git (fetch)\n', Fake()
+        cb.run = self.fake
+
+    def tearDown(self):
+        cb.run = self.real
+
+    def fake(self, cmd, cwd=None, input=None):
+        self.calls.append(cmd)
+        return Fake(stdout=self.remote) if cmd[0] == 'git' else self.gh
+
+    def test_no_github_remote_makes_no_gh_call(self):
+        self.remote = 'origin\tgit@gitlab.com:o/r.git (fetch)\n'
+        self.assertEqual(cb.gh_find_pr(self.T), (None, None))
+        self.assertFalse([c for c in self.calls if c[0] == 'gh'])
+
+    def test_open_pr_for_the_branch_links_to_the_base_repo(self):
+        self.gh = Fake(stdout='{"number":7,"url":"https://github.com/up/proj/pull/7","headRefOid":"abc","state":"OPEN"}')
+        link, err = cb.gh_find_pr(self.T)
+        self.assertEqual((link['repo'], link['number'], link['head'], err), ('up/proj', 7, 'abc', None))
+
+    def test_closed_pr_links_only_when_named(self):
+        self.gh = Fake(stdout='{"number":7,"url":"https://github.com/o/r/pull/7","headRefOid":"abc","state":"MERGED"}')
+        self.assertEqual(cb.gh_find_pr(self.T), (None, None))
+        self.assertEqual(cb.gh_find_pr(dict(self.T, mode='pr', pr=7))[0]['number'], 7)
+
+    def test_no_pr_is_absent_but_a_failure_is_an_error(self):
+        self.gh = Fake(1, stderr='no pull requests found for branch "x"\n')
+        self.assertEqual(cb.gh_find_pr(self.T), (None, None))
+        self.gh = Fake(1, stderr='hint: try gh event listen\nerror connecting to api.github.com\n')
+        self.assertEqual(cb.gh_find_pr(self.T), (None, 'error connecting to api.github.com'))
+
+    def test_api_error_body_is_the_message(self):
+        self.gh = Fake(1, stdout='{"message":"Validation Failed","errors":["line must be part of the diff"]}', stderr='gh: Validation Failed (HTTP 422)\n')
+        self.assertEqual(cb.gh_json(['api', 'x'], '/r'), (None, 'Validation Failed; line must be part of the diff'))
+
+
 if __name__ == '__main__':
     unittest.main()

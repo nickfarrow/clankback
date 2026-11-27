@@ -37,6 +37,7 @@ textarea { width:100%; min-height:70px; font-family:var(--font); font-size:12.5p
 #target > span { direction:ltr; unicode-bidi:isolate; }
 #stats { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
 #stats .a { color:var(--add); } #stats .d { color:var(--del); }
+#gh { font-size:12px; } #gh a { color:var(--accent); text-decoration:none; } #gh a:hover { text-decoration:underline; } #gh .err { color:var(--del); margin-left:6px; }
 #banner { background:var(--accent-bg); border-bottom:1px solid var(--accent-line); padding:7px 14px; color:var(--fg); }
 
 /* sidebar */

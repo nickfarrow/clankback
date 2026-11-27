@@ -443,9 +443,16 @@ async function poll() {  // pick up replies and resolves made from the terminal
   if (fresh && !$('.pointed') && !typing()) jumpToComment(fresh);  // never yank the page while the user types
   if (r.diff_rev && diffRev && r.diff_rev !== diffRev) await reloadDiff();
   if (r.focus && r.focus.seq !== focusSeq) { focusSeq = r.focus.seq; showFocus(r.focus); }
+  if (JSON.stringify(r.gh || null) !== JSON.stringify(ghInfo)) showGh(r.gh);
   if (r.status === 'finished' && !finished) { finished = true; $('#done').hidden = false; }
 }
-let focusSeq = D.focus && D.focus.seq;
+let focusSeq = D.focus && D.focus.seq, ghInfo = null;
+function showGh(g) {  // the linked pull request, and whether GitHub is answering
+  ghInfo = g || null; const s = $('#gh'), parts = [];
+  if (g && g.number) parts.push('<a href="' + esc(g.url) + '" target="_blank" rel="noopener" title="' + esc(g.repo) + '">PR #' + g.number + '</a>');
+  if (g && g.error) parts.push('<span class="err" title="' + esc(g.error) + '">GitHub error since ' + new Date(g.error_since * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + '</span>');
+  s.innerHTML = parts.join(''); s.hidden = !parts.length;
+}
 function showFocus(f) {  // terminal asked us to scroll somewhere
   if (f.id) { if (comments[f.id]) jumpToComment(comments[f.id]); return; }
   const fi = fileIndex(f.file); if (fi < 0) return;
@@ -643,7 +650,7 @@ function toggleView() {
 function toggleSide() { const on = $('#side').classList.toggle('hidden'); api('/prefs', {sidebar: !on}); }
 
 // ---------------------------------------------------------------- init
-addOrphans(); buildSidebar(); buildFiles(); refreshCount();
+addOrphans(); buildSidebar(); buildFiles(); refreshCount(); showGh(D.gh);
 $('#viewToggle').textContent = view === 'split' ? 'Unified' : 'Split';
 $('#viewToggle').onclick = toggleView; $('#sideToggle').onclick = toggleSide;
 if (D.prefs && D.prefs.sidebar === false) $('#side').classList.add('hidden');

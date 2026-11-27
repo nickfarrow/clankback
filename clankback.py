@@ -379,6 +379,46 @@ def merge_comment(old, c):
     return c
 
 
+# ---------------------------------------------------------------- GitHub
+
+GH_POLL = 30  # seconds between syncs while the page is open; about 120 of the 5000 requests an hour a user token gets
+
+def gh_json(args, cwd, stdin=None):
+    """Run gh and parse its JSON output. Returns (data, error) and never dies, because the daemon calls it."""
+    try:
+        r = run(['gh'] + args, cwd, input=stdin)
+    except OSError:
+        return None, 'gh is not installed'
+    if r.returncode != 0:  # gh also prints hints on stderr, so only a failing exit counts
+        try:
+            body = json.loads(r.stdout)
+            msg = '; '.join([body.get('message', '')] + [e.get('message', '') if isinstance(e, dict) else str(e) for e in body.get('errors', [])])
+        except (ValueError, AttributeError):
+            msg = ''
+        err = [l for l in r.stderr.strip().split('\n') if l.strip() and not l.startswith('hint:')]
+        return None, (msg.strip('; ') or (err[-1] if err else 'gh failed')).strip()
+    try:
+        return (json.loads(r.stdout) if r.stdout.strip() else None), None
+    except ValueError:
+        return None, 'gh printed something that is not JSON'
+
+
+def gh_find_pr(t):
+    """The pull request a review belongs to: the one named, else the open one for the current branch.
+    Returns (link, error); (None, None) means there is none."""
+    if t['mode'] not in ('pr', 'working', 'staged', 'ref') or not t['root']:
+        return None, None
+    if 'github.com' not in run(GIT + ['remote', '-v'], t['root']).stdout:  # local check, so a repo with no GitHub remote costs no network call
+        return None, None
+    d, err = gh_json(['pr', 'view'] + ([str(t['pr'])] if t['pr'] else []) + ['--json', 'number,url,headRefOid,state'], t['root'])
+    if err:
+        return None, (None if 'no pull requests found' in err else err)
+    m = re.match(r'https://github\.com/([^/]+/[^/]+)/pull/\d+', d.get('url') or '')
+    if not m or (not t['pr'] and d.get('state') != 'OPEN'):
+        return None, None
+    return {'repo': m.group(1), 'number': d['number'], 'url': d['url'], 'head': d['headRefOid']}, None
+
+
 # ---------------------------------------------------------------- server (daemon)
 
 class Review:
@@ -389,6 +429,25 @@ class Review:
         self.finished = threading.Event()
         self.last_seen = self.bye_at = None
         self.files, self.html, self.cache, self.fp, self.port = [], b'', {}, None, None
+        self.gh_lookup, self.gh_next, self.gh_busy = True, 0, False  # look the PR up at start and on each page load
+
+    def gh_tick(self):
+        """Link the review to its pull request. Runs in its own thread, so a slow network never stalls the page."""
+        try:
+            if self.gh_lookup:
+                link, err = gh_find_pr(self.target)
+                with locked_state(self.spath) as st:
+                    old = st.get('gh') or {}
+                    if err:  # unknown, not absent: keep what we had and try again next tick
+                        st['gh'] = dict(old, error=err, error_since=old.get('error_since') or time.time())
+                        return
+                    self.gh_lookup = False
+                    if link:
+                        st['gh'] = dict({k: v for k, v in old.items() if old.get('number') == link['number'] and k not in ('error', 'error_since')}, **link)
+                    else:
+                        st.pop('gh', None)
+        finally:
+            self.gh_busy = False
 
     def fingerprint(self):
         """Cheap change signal: mtimes of the files in the diff plus the git index."""
@@ -454,6 +513,7 @@ def make_handler(rv):
             u = urlparse(self.path)
             rv.last_seen = time.monotonic()
             if u.path == '/':
+                rv.gh_lookup, rv.gh_next = True, 0  # a reload also picks up a PR opened since
                 rv.refresh()  # every (re)load shows the current diff and comments
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -468,7 +528,7 @@ def make_handler(rv):
                     rv.refresh()
                 st = load_json(rv.spath, {})
                 self._json({'comments': st.get('comments', {}), 'status': st.get('status'), 'updated': st.get('updated'),
-                            'focus': st.get('focus'), 'diff_rev': st.get('diff_rev')})
+                            'focus': st.get('focus'), 'diff_rev': st.get('diff_rev'), 'gh': st.get('gh')})
             elif u.path == '/data':  # fresh diff for in-place re-render
                 with rv.lock:
                     self._json({'files': rv.files, 'diff_rev': load_json(rv.spath, {}).get('diff_rev')})
@@ -559,7 +619,7 @@ def render_html(files, state, target):
             return fh.read()
     data = {'files': files, 'comments': state['comments'], 'viewed': state.get('viewed', []),
             'prefs': load_json(os.path.join(STATE_DIR, 'prefs.json'), {}), 'target': target['desc'],
-            'cwd': state['cwd'], 'focus': state.get('focus'), 'diff_rev': state.get('diff_rev'), 'expandable': target['mode'] != 'pr' or bool(target.get('head_sha'))}
+            'cwd': state['cwd'], 'focus': state.get('focus'), 'diff_rev': state.get('diff_rev'), 'gh': state.get('gh'), 'expandable': target['mode'] != 'pr' or bool(target.get('head_sha'))}
     js_data = json.dumps(data, ensure_ascii=False).replace('</', '<\\/')
     page = rd('viewer.html')
     with open(os.path.join(HERE, 'favicon.ico'), 'rb') as fh:
@@ -589,6 +649,9 @@ def serve(spath):
     try:
         while not rv.finished.wait(1):
             now = time.monotonic()
+            if now >= rv.gh_next and not rv.gh_busy:
+                rv.gh_busy, rv.gh_next = True, now + GH_POLL
+                threading.Thread(target=rv.gh_tick, daemon=True).start()
             if rv.last_seen is None:
                 if now - start > 120:
                     break
