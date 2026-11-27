@@ -621,9 +621,15 @@ function buildSummary() {
   let cur = null;
   cs.forEach(c => {
     if (c.file !== cur) { cur = c.file; list.append(el('h4', null, esc(c.file))); }
-    const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '') + (folded.has(c.id) ? ' tab' : '')},
+    if (folded.has(c.id)) {  // folded in the diff, so one line here too
+      const first = c.text.split(/(?<=[.!?])\s|\n/)[0].slice(0, 120);
+      const tab = el('div', {class: 'sumitem tab' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : ''), title: 'Folded. Click to open the thread.'},
+        '<span class="where">' + (c.by === 'claude' || ghAuthor(c) ? esc(who(c).name) + ' · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new</span>' : c.resolved ? ' · <span class="res">resolved</span>' : '') + '</span><span class="txt">' + fmt(first) + '</span>');
+      tab.onclick = () => jumpToComment(c); list.append(tab); return;
+    }
+    const it = el('div', {class: 'sumitem' + (c.outdated ? ' outdated' : '') + (c.resolved ? ' resolved' : '')},
       '<div class="where">' + (c.by === 'claude' || ghAuthor(c) ? esc(who(c).name) + ' · ' : '') + where(c) + (unseenIn(c).length ? ' · <span class="q">new from clanker</span>' : '') + (c.kind === 'rewrite' ? ' <span class="tag">rewrite</span>' : '') + (c.outdated ? (c.gh ? ' · not in this diff' : ' · OUTDATED') : '') + (c.resolved ? ' · <span class="res">resolved</span>' : '') + (c.replies && c.replies.length ? ' · ' + c.replies.length + ' repl' + (c.replies.length === 1 ? 'y' : 'ies') : '') + '</div>' +
-      (folded.has(c.id) ? '' : c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + fmt(c.text) + '</div>');
+      (c.selected ? '<div class="where">' + esc(c.selected.slice(0, 80)) + '</div>' : c.line_text ? '<div class="where">' + esc(c.line_text.slice(0, 80)) + '</div>' : '') + '<div class="txt">' + fmt(c.text) + '</div>');
     it.onclick = () => jumpToComment(c); list.append(it);
   });
   list.scrollTop = top;
