@@ -611,7 +611,19 @@ $('#seltools').onclick = e => {
   window.getSelection().removeAllRanges(); openComposer(s.fi, s.hi, s.a, s.b, s.side, null, {text: s.text, rewrite: a === 'rewrite'});
 };
 document.addEventListener('mousedown', e => { if (!e.target.closest('#seltools')) $('#seltools').hidden = true; });
-$('#main').addEventListener('scroll', () => { $('#seltools').hidden = true; });
+$('#main').addEventListener('scroll', () => { $('#seltools').hidden = true; noteTop(); }, {passive: true});
+// Lines wrap, so a resize changes the height of everything above the view and the same scrollTop lands elsewhere.
+// Remember the row in the middle of the view, where a jump puts its target, and put it back where it was.
+let topRow = null;
+function noteTop() {
+  const r = $('#main').getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  const a = hit && hit.closest('#main tr, #main .file');
+  topRow = a ? {el: a, off: a.getBoundingClientRect().top - r.top} : null;
+}
+window.addEventListener('resize', () => {
+  if (!topRow || !topRow.el.isConnected) return;
+  const main = $('#main'); main.scrollTop += topRow.el.getBoundingClientRect().top - main.getBoundingClientRect().top - topRow.off;
+});
 
 // ---------------------------------------------------------------- summary / finish
 function buildSummary() {
