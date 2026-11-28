@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """clankback: review a local diff in the browser, GitHub-PR style. Stdlib + git only."""
-import sys, os, re, json, base64, hashlib, subprocess, time, threading, html, collections, fcntl, signal
+import sys, os, re, json, base64, hashlib, subprocess, time, threading, html, collections, fcntl, signal, datetime
 from contextlib import contextmanager
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -72,8 +72,8 @@ def resolve_target(opts, pos, paths, cwd):
     for p in pos:
         if os.path.exists(p):
             t['paths'].append(p)
-        elif p.isdigit():
-            t['pr'] = int(p)
+        elif p.lstrip('#').isdigit():  # '#676', as people write PR numbers
+            t['pr'] = int(p.lstrip('#'))
         elif run(GIT + ['rev-parse', '--verify', '--quiet', p + '^{tree}'], cwd).returncode == 0:
             t['ref'] = p
         else:
@@ -320,10 +320,13 @@ def attach_comments(files, comments):
     for c in comments.values():
         h = by_key.get((c['file'], c['hunk']))
         if h is None and c.get('line_text'):
+            lt = c['line_text']
+            # A line the pull request added may be plain context in a local diff, so a GitHub thread matches on text alone; a removed line must still be removed.
+            same = (lambda l: l[1] == lt[1:] and (l[0] == '-') == (lt[0] == '-')) if c.get('gh') else (lambda l: l[0] + l[1] == lt)
             best = None  # the same text nearest the old line number
             for nh in by_path.get(c['file'], []):
                 for i, l in enumerate(nh['lines']):
-                    if l[0] + l[1] == c['line_text']:
+                    if same(l):
                         d = abs((l[3] if l[3] is not None else l[2]) - (c.get('line') or 0))
                         if best is None or d < best[0]:
                             best = (d, nh, i)
@@ -343,6 +346,205 @@ def attach_comments(files, comments):
             c['end_line'] = ln(c['end_offset'])
 
 
+SERVER_OWNED = ('sent', 'resolved_sent', 'gh', 'gh_id', 'draft')
+
+
+def merge_comment(old, c):
+    """The browser's copy of a thread, merged over the saved one.
+
+    The browser may be up to one poll behind, so it can lack replies the CLI or a sync added since,
+    and it never authors anything but the user's own text. Everything else is kept from the saved copy.
+    """
+    def keep(o, n):
+        for k in SERVER_OWNED:
+            if k in o:
+                n[k] = o[k]
+            else:
+                n.pop(k, None)
+        if 'seen' in o:
+            n['seen'] = o['seen']
+        if o.get('by') not in (None, 'you'):
+            n['by'], n['text'] = o['by'], o.get('text', n.get('text'))
+        return n
+    if not old:
+        c['sent'] = False
+        return c
+    keep(old, c)
+    oldr = {r['id']: r for r in old.get('replies', [])}
+    mine = {r['id'] for r in c.get('replies', [])}
+    for r in c.get('replies', []):
+        if r['id'] in oldr:
+            keep(oldr[r['id']], r)
+        else:
+            r['sent'] = False
+    c['replies'] = sorted(c.get('replies', []) + [r for r in old.get('replies', []) if r['id'] not in mine],
+                          key=lambda r: r.get('created') or 0)
+    return c
+
+
+# ---------------------------------------------------------------- GitHub
+
+GH_POLL = 30  # seconds between syncs while the page is open; about 120 of the 5000 requests an hour a user token gets
+
+def gh_json(args, cwd, stdin=None):
+    """Run gh and parse its JSON output. Returns (data, error) and never dies, because the daemon calls it."""
+    try:
+        r = run(['gh'] + args, cwd, input=stdin)
+    except OSError:
+        return None, 'gh is not installed'
+    if r.returncode != 0:  # gh also prints hints on stderr, so only a failing exit counts
+        try:
+            body = json.loads(r.stdout)
+            msg = '; '.join([body.get('message', '')] + [' '.join(filter(None, (e.get('field'), e.get('message')))) if isinstance(e, dict) else str(e) for e in body.get('errors', [])])
+        except (ValueError, AttributeError):
+            msg = ''
+        err = [l for l in r.stderr.strip().split('\n') if l.strip() and not l.startswith('hint:')]
+        return None, (msg.strip('; ') or (err[-1] if err else 'gh failed')).strip()
+    try:
+        return (json.loads(r.stdout) if r.stdout.strip() else None), None
+    except ValueError:
+        return None, 'gh printed something that is not JSON'
+
+
+GH_THREADS = '''query($owner:String!,$repo:String!,$n:Int!,$endCursor:String){viewer{login}
+repository(owner:$owner,name:$repo){pullRequest(number:$n){headRefOid
+comments(last:100){nodes{databaseId author{__typename login} body createdAt url}}
+reviews(last:100){nodes{databaseId author{__typename login} body state submittedAt url}}
+reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
+nodes{id isResolved isOutdated path line originalLine diffSide
+comments(first:100){nodes{databaseId author{__typename login} authorAssociation body createdAt diffHunk url}}}}}}}'''
+GH_WRITERS = ('OWNER', 'MEMBER', 'COLLABORATOR')  # people with write access; only they start a round unasked
+
+
+def gh_ts(s):
+    return datetime.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+
+
+def gh_conversation(pr, login):
+    """The pull request's conversation: its comments and the reviews that say something, oldest first."""
+    out = []
+    for kind, conn in (('comment', 'comments'), ('review', 'reviews')):
+        for m in (pr.get(conn) or {}).get('nodes') or []:
+            # A review left with no text and no verdict only carries line comments, which the threads already show.
+            if kind == 'review' and (m['state'] == 'PENDING' or (m['state'] == 'COMMENTED' and not m['body'].strip())):
+                continue
+            a = m.get('author') or {'login': 'ghost', '__typename': 'User'}
+            out.append({'gh_id': m['databaseId'], 'kind': kind, 'state': m.get('state'), 'text': m['body'], 'url': m['url'],
+                        'by': 'you' if a['login'] == login else a['login'] + ('[bot]' if a['__typename'] == 'Bot' else ''),
+                        'created': gh_ts(m.get('createdAt') or m['submittedAt'])})
+    return sorted(out, key=lambda m: m['created'])
+
+
+def gh_merge(st, nodes, login, backlog):
+    """Fold GitHub review threads into the review state.
+
+    Returns the ids of threads whose new comments should go to Claude now: from someone with write access,
+    not the user, not a bot, on an open thread, and not part of the backlog found when the PR was first linked.
+    """
+    by_thread = {c['gh']['thread']: c for c in st['comments'].values() if c.get('gh', {}).get('thread')}
+    by_top = {c['gh']['top']: c for c in st['comments'].values() if c.get('gh', {}).get('top')}
+    wake = []
+    for n in nodes:
+        msgs = n['comments']['nodes']
+        if not msgs:
+            continue
+        top = msgs[0]
+        c = by_thread.get(n['id']) or by_top.get(top['databaseId'])
+        if c is None:
+            c = {'id': new_id(st), 'file': n['path'], 'hunk': None, 'offset': 0, 'end_offset': None,
+                 'side': 'old' if n.get('diffSide') == 'LEFT' else 'new', 'line': n.get('line') or n.get('originalLine'), 'end_line': None,
+                 'line_text': (top.get('diffHunk') or '').rstrip('\n').split('\n')[-1] if n.get('line') or n.get('originalLine') else '',
+                 'text': None, 'created': gh_ts(top['createdAt']), 'resolved': n['isResolved'], 'replies': [], 'sent': True}
+            st['comments'][c['id']] = c
+        c['gh'] = {'thread': n['id'], 'top': top['databaseId'], 'url': top['url'], 'resolved': n['isResolved'], 'outdated': n['isOutdated']}
+        have = {x.get('gh_id'): x for x in [c] + c['replies'] if x.get('gh_id')}
+        for m in msgs:
+            a = m.get('author') or {'login': 'ghost', '__typename': 'User'}
+            by = 'you' if a['login'] == login else a['login'] + ('[bot]' if a['__typename'] == 'Bot' else '')
+            if m['databaseId'] in have:
+                have[m['databaseId']]['text'] = m['body']  # edited on GitHub
+                continue
+            quiet = by == 'you' or n['isResolved']  # nothing for Claude to answer
+            x = c if c['text'] is None else {'id': new_id(st), 'created': gh_ts(m['createdAt'])}
+            x.update(text=m['body'], by=by, gh_id=m['databaseId'], sent=quiet)
+            if quiet:
+                x['quiet'] = True  # sent only so no round picks it up; Claude never had it
+            if x is not c:
+                c['replies'].append(x)
+            if not (quiet or backlog or by.endswith('[bot]') or m.get('authorAssociation') not in GH_WRITERS) and c['id'] not in wake:
+                wake.append(c['id'])
+    return wake
+
+
+def gh_sync(spath, gh, files):
+    """Pull the pull request's review threads into the review, and start a round for new ones from collaborators."""
+    owner, repo = gh['repo'].split('/')
+    pages, err = gh_json(['api', 'graphql', '--paginate', '--slurp', '-f', 'owner=' + owner, '-f', 'repo=' + repo,
+                          '-F', 'n=%d' % gh['number'], '-f', 'query=' + GH_THREADS], None)
+    with locked_state(spath) as st:
+        g = st.get('gh')
+        if not g or g.get('number') != gh['number']:
+            return
+        if err:
+            g.setdefault('error_since', time.time())
+            g['error'] = err
+            return
+        pages = pages if isinstance(pages, list) else [pages]
+        pr = pages[0]['data']['repository']['pullRequest']
+        nodes = [n for p in pages for n in p['data']['repository']['pullRequest']['reviewThreads']['nodes']]
+        wake = gh_merge(st, nodes, pages[0]['data']['viewer']['login'], backlog=not g.get('synced'))
+        attach_comments(files, st['comments'])
+        g.update(login=pages[0]['data']['viewer']['login'], head=pr['headRefOid'], synced=time.time(),
+                 conversation=gh_conversation(pr, pages[0]['data']['viewer']['login']))
+        g.pop('error', None), g.pop('error_since', None)
+        if wake:  # as if the user had clicked each thread's Send button
+            st['send_seq'] = st.get('send_seq', 0) + 1
+            st.setdefault('send_ids', []).extend(wake)
+
+
+def gh_post_request(c, gh, files, head):
+    """The API path and body that put a comment on GitHub for thread c, or (None, reason).
+
+    A thread that is already on GitHub gets a reply. A local thread becomes a new line comment, which only a
+    review of the pull request itself can place, because only there are the page's lines GitHub's lines.
+    """
+    if (c.get('gh') or {}).get('top'):
+        return 'repos/%s/pulls/%d/comments/%d/replies' % (gh['repo'], gh['number'], c['gh']['top']), {}
+    if head is None:
+        return None, 'A new line comment can only be posted from a review of the pull request itself: /clankback %d' % gh['number']
+    h = next((h for f in files if f['path'] == c['file'] for h in f['hunks'] if h['hash'] == c.get('hunk')), None)
+    if h is None or c.get('outdated'):
+        return None, 'This line is no longer in the diff, so GitHub has nowhere to put the comment.'
+    def end(off):
+        l = h['lines'][min(off, len(h['lines']) - 1)]
+        left = l[0] == '-' or (l[0] == ' ' and c.get('side') == 'old')
+        return ('LEFT', l[2]) if left else ('RIGHT', l[3])
+    a = end(c['offset'])
+    b = end(c['end_offset']) if c.get('end_offset') is not None else a
+    if a[0] == b[0] and a[1] > b[1]:  # a range dragged upwards
+        a, b = b, a
+    body = {'commit_id': head, 'path': c['file'], 'side': b[0], 'line': b[1]}
+    if a != b:
+        body.update(start_side=a[0], start_line=a[1])
+    return 'repos/%s/pulls/%d/comments' % (gh['repo'], gh['number']), body
+
+
+def gh_find_pr(t):
+    """The pull request a review belongs to: the one named, else the open one for the current branch.
+    Returns (link, error); (None, None) means there is none."""
+    if t['mode'] not in ('pr', 'working', 'staged', 'ref') or not t['root']:
+        return None, None
+    if 'github.com' not in run(GIT + ['remote', '-v'], t['root']).stdout:  # local check, so a repo with no GitHub remote costs no network call
+        return None, None
+    d, err = gh_json(['pr', 'view'] + ([str(t['pr'])] if t['pr'] else []) + ['--json', 'number,url,headRefOid,state'], t['root'])
+    if err:
+        return None, (None if 'no pull requests found' in err else err)
+    m = re.match(r'https://github\.com/([^/]+/[^/]+)/pull/\d+', d.get('url') or '')
+    if not m or (not t['pr'] and d.get('state') != 'OPEN'):
+        return None, None
+    return {'repo': m.group(1), 'number': d['number'], 'url': d['url'], 'head': d['headRefOid']}, None
+
+
 # ---------------------------------------------------------------- server (daemon)
 
 class Review:
@@ -353,6 +555,58 @@ class Review:
         self.finished = threading.Event()
         self.last_seen = self.bye_at = None
         self.files, self.html, self.cache, self.fp, self.port = [], b'', {}, None, None
+        self.gh_lookup, self.gh_next, self.gh_busy = True, 0, False  # look the PR up at start and on each page load
+        self.posting = threading.Lock()  # one post at a time, so a double click cannot post twice
+
+    def gh_post(self, cid, text):
+        """Post the user's draft on thread cid to GitHub, as the user. Called only from the page's Post button."""
+        if not text.strip():
+            return {'error': 'The draft is empty.'}
+        if not self.posting.acquire(blocking=False):
+            return {'error': 'Already posting.'}
+        try:
+            st = load_json(self.spath, {})
+            c, gh = st.get('comments', {}).get(cid), st.get('gh') or {}
+            if not c or not c.get('draft') or not gh.get('number'):
+                return {'error': 'Nothing to post: the draft or the pull request link is gone.'}
+            path, body = gh_post_request(c, gh, self.files, self.target.get('head_sha') if self.target['mode'] == 'pr' else None)
+            if path is None:
+                return {'error': body}
+            body['body'] = text
+            resp, err = gh_json(['api', '-X', 'POST', path, '--input', '-'], self.target['root'], stdin=json.dumps(body))
+            if err:
+                return {'error': 'GitHub refused it: ' + err}
+            with locked_state(self.spath) as st:
+                c = st['comments'][cid]
+                c.setdefault('replies', []).append({'id': new_id(st), 'text': text, 'created': time.time(), 'by': 'you', 'gh_id': resp['id'],
+                                                    'sent': True, 'quiet': True, 'drafted': (c.get('draft') or {}).get('claude')})
+                c.pop('draft', None)
+                if not c.get('gh'):  # the next sync matches the new GitHub thread to this one by its first comment
+                    c['gh'] = {'thread': None, 'top': resp['id'], 'url': resp.get('html_url'), 'resolved': False, 'outdated': False}
+            return {'ok': True, 'url': resp.get('html_url')}
+        finally:
+            self.posting.release()
+
+    def gh_tick(self):
+        """Link the review to its pull request. Runs in its own thread, so a slow network never stalls the page."""
+        try:
+            if self.gh_lookup:
+                link, err = gh_find_pr(self.target)
+                with locked_state(self.spath) as st:
+                    old = st.get('gh') or {}
+                    if err:  # unknown, not absent: keep what we had and try again next tick
+                        st['gh'] = dict(old, error=err, error_since=old.get('error_since') or time.time())
+                        return
+                    self.gh_lookup = False
+                    if link:
+                        st['gh'] = dict({k: v for k, v in old.items() if old.get('number') == link['number'] and k not in ('error', 'error_since')}, **link)
+                    else:
+                        st.pop('gh', None)
+            gh = load_json(self.spath, {}).get('gh') or {}
+            if gh.get('number'):
+                gh_sync(self.spath, gh, self.files)
+        finally:
+            self.gh_busy = False
 
     def fingerprint(self):
         """Cheap change signal: mtimes of the files in the diff plus the git index."""
@@ -365,6 +619,8 @@ class Review:
                 st = os.stat(p); out.append((p, st.st_mtime_ns, st.st_size))
             except OSError:
                 out.append((p, 0, 0))
+        if self.target['mode'] == 'pr':  # a push to the pull request changes its diff
+            out.append(((load_json(self.spath, {}).get('gh') or {}).get('head'), 0, 0))
         return tuple(out)
 
     def refresh(self):
@@ -418,6 +674,7 @@ def make_handler(rv):
             u = urlparse(self.path)
             rv.last_seen = time.monotonic()
             if u.path == '/':
+                rv.gh_lookup, rv.gh_next = True, 0  # a reload also picks up a PR opened since
                 rv.refresh()  # every (re)load shows the current diff and comments
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -432,7 +689,7 @@ def make_handler(rv):
                     rv.refresh()
                 st = load_json(rv.spath, {})
                 self._json({'comments': st.get('comments', {}), 'status': st.get('status'), 'updated': st.get('updated'),
-                            'focus': st.get('focus'), 'diff_rev': st.get('diff_rev')})
+                            'focus': st.get('focus'), 'diff_rev': st.get('diff_rev'), 'gh': st.get('gh')})
             elif u.path == '/data':  # fresh diff for in-place re-render
                 with rv.lock:
                     self._json({'files': rv.files, 'diff_rev': load_json(rv.spath, {}).get('diff_rev')})
@@ -460,21 +717,13 @@ def make_handler(rv):
                 prefs = load_json(os.path.join(STATE_DIR, 'prefs.json'), {})
                 prefs.update(body)
                 save_json(os.path.join(STATE_DIR, 'prefs.json'), prefs)
-            elif p in ('/comment', '/viewed', '/send', '/finish', '/seen', '/clear'):
+            elif p == '/gh/post':
+                return self._json(rv.gh_post(body['id'], body.get('text') or ''))
+            elif p in ('/comment', '/viewed', '/send', '/finish', '/seen', '/clear', '/draft'):
                 with locked_state(rv.spath) as st:
                     if p == '/comment':
                         c = body['comment']
-                        old = st['comments'].get(c['id'], {})
-                        c['sent'] = old.get('sent', False)
-                        if old.get('by') == 'claude':
-                            c['by'], c['seen'], c['text'] = 'claude', old.get('seen', True), old.get('text', c.get('text'))
-                        oldr = {r['id']: r for r in old.get('replies', [])}
-                        for r in c.get('replies', []):
-                            o = oldr.get(r['id'], {})
-                            r['sent'] = o.get('sent', r.get('by') == 'claude')
-                            if 'seen' in o:
-                                r['seen'] = o['seen']
-                        st['comments'][c['id']] = c
+                        st['comments'][c['id']] = merge_comment(st['comments'].get(c['id'], {}), c)
                     elif p == '/viewed':
                         v = set(st.get('viewed', []))
                         (v.add if body['viewed'] else v.discard)(body['path'])
@@ -487,6 +736,18 @@ def make_handler(rv):
                                     x['seen'] = True
                     elif p == '/clear':
                         st['comments'] = {}
+                        (st.get('gh') or {}).pop('synced', None)  # threads the next sync brings back are backlog, not news
+                    elif p == '/draft':  # the user writes, edits or discards a thread's GitHub draft; ask hands it to the clanker
+                        c = st['comments'][body['id']]
+                        if body.get('text') is None:
+                            c.pop('draft', None)
+                        else:
+                            d = c.setdefault('draft', {'claude': None, 'created': time.time(), 'sent': True})
+                            d['text'] = body['text']
+                            if body.get('ask'):
+                                d['sent'] = False
+                                st['send_seq'] = st.get('send_seq', 0) + 1
+                                st.setdefault('send_ids', []).append(c['id'])
                     else:
                         st['send_seq'] = st.get('send_seq', 0) + 1
                         if p == '/finish':
@@ -533,7 +794,7 @@ def render_html(files, state, target):
             return fh.read()
     data = {'files': files, 'comments': state['comments'], 'viewed': state.get('viewed', []),
             'prefs': load_json(os.path.join(STATE_DIR, 'prefs.json'), {}), 'target': target['desc'],
-            'cwd': state['cwd'], 'focus': state.get('focus'), 'diff_rev': state.get('diff_rev'), 'expandable': target['mode'] != 'pr' or bool(target.get('head_sha'))}
+            'cwd': state['cwd'], 'focus': state.get('focus'), 'diff_rev': state.get('diff_rev'), 'gh': state.get('gh'), 'mode': target['mode'], 'expandable': target['mode'] != 'pr' or bool(target.get('head_sha'))}
     js_data = json.dumps(data, ensure_ascii=False).replace('</', '<\\/')
     page = rd('viewer.html')
     with open(os.path.join(HERE, 'favicon.ico'), 'rb') as fh:
@@ -563,6 +824,9 @@ def serve(spath):
     try:
         while not rv.finished.wait(1):
             now = time.monotonic()
+            if now >= rv.gh_next and not rv.gh_busy:
+                rv.gh_busy, rv.gh_next = True, now + GH_POLL
+                threading.Thread(target=rv.gh_tick, daemon=True).start()
             if rv.last_seen is None:
                 if now - start > 120:
                     break
@@ -622,26 +886,45 @@ def indent(text, pad='  '):
     return '\n'.join(pad + l for l in text.rstrip().split('\n'))
 
 
+def gh_author(x):
+    """The GitHub login of someone other than the user or Claude who wrote x, else None."""
+    return x['by'] if x.get('gh_id') and x.get('by') not in (None, 'you', 'claude') else None
+
+
+def fmt_tag(c):
+    if not c.get('outdated'):
+        return ' [outdated on GitHub]' if c.get('gh', {}).get('outdated') else ''
+    return ' [not in this diff]' if c.get('gh') else ' [OUTDATED: hunk changed since comment]'
+
+
 def report(st, desc, only=None):
     """Print what the user sent this round (unsent comments and unsent replies) and mark it sent."""
     comments = [c for c in st['comments'].values() if only is None or c['id'] in only]
     order = {f['path']: i for i, f in enumerate(st.get('files', []))}
     fresh = [c for c in comments if not c.get('sent') or any(not r.get('sent') for r in c.get('replies', []))
-             or (c.get('by') == 'claude' and c.get('resolved') and not c.get('resolved_sent'))]
+             or (c.get('by') == 'claude' and c.get('resolved') and not c.get('resolved_sent'))
+             or (c.get('draft') and not c['draft'].get('sent'))]
     fresh.sort(key=lambda c: (order.get(c['file'], 10 ** 6), c.get('line') or 0))
     ncom = sum(1 for c in fresh if not c.get('sent'))
     nrep = sum(1 for c in fresh for r in c.get('replies', []) if not r.get('sent'))
     rnd = st.get('ack_seq', 0)
     out = ['Review round %d: %d new comment%s, %d new repl%s (%s, %s)' % (
         rnd, ncom, '' if ncom == 1 else 's', nrep, 'y' if nrep == 1 else 'ies', desc, st['cwd'])]
+    gh = st.get('gh') or {}
+    if gh.get('number'):
+        out.append('Pull request %s, head %s' % (gh['url'], gh.get('head')))
     cur = None
     for c in fresh:
         if c['file'] != cur:
             cur = c['file']
             f = next((f for f in st.get('files', []) if f['path'] == cur), None)
             out.append('\n### %s%s' % (cur, ' (renamed from %s)' % f['old_path'] if f and f['status'] == 'renamed' else ''))
-        tag = ' [OUTDATED: hunk changed since comment]' if c.get('outdated') else ''
-        if not c.get('sent'):
+        tag = fmt_tag(c)
+        if not c.get('sent') and gh_author(c):
+            out.append('- [%s] %s%s%s, %s on GitHub:' % (c['id'], fmt_where(c), fmt_quote(c), tag, c['by']))
+            out.append(indent(c.get('text', '')))
+            c['sent'] = True
+        elif not c.get('sent'):
             if c.get('kind') == 'rewrite':
                 out.append('- [%s] %s%s REWRITE the selected text:' % (c['id'], fmt_where(c), tag))
                 out.append(indent(c.get('selected', ''), '  | '))
@@ -658,13 +941,31 @@ def report(st, desc, only=None):
         else:
             who = ' (Claude asked)' if c.get('by') == 'claude' else ''
             out.append('- [%s] %s%s, earlier thread%s "%s"' % (c['id'], fmt_where(c), tag, who, (c.get('text') or '')[:60].replace('\n', ' ')))
+            # The writer may have lost its own answer to compaction or a new session, and the user's reply only makes sense against it.
+            said = None
+            for m in [c] + c.get('replies', []):
+                if not m.get('sent'):
+                    break
+                if m.get('by') == 'claude':
+                    said = m
+            if said:
+                out.append(indent('Claude had said: ' + (said.get('text') or '').strip()))
         for r in c.get('replies', []):
-            if not r.get('sent'):
-                out.append(indent('> reply: ' + r.get('text', '').strip().replace('\n', '\n  > ')))
-                r['sent'] = True
+            if not r.get('sent') or (r.get('quiet') and not r.get('shown')):  # a quiet one (the user's own post, say) is context, shown once
+                who = '%s on GitHub' % gh_author(r) if gh_author(r) else 'you on GitHub' if r.get('gh_id') else 'reply'
+                out.append(indent('> %s: ' % who + r.get('text', '').strip().replace('\n', '\n  > ')))
+                r['sent'] = r['shown'] = True
         if c.get('resolved'):
             out.append('  (resolved by the user)' if c.get('by') == 'claude' else '  (resolved)')
             c['resolved_sent'] = True
+        d = c.get('draft')
+        if d and not d.get('sent'):
+            if (d.get('text') or '').strip():
+                out.append('  DRAFT a GitHub comment for this thread (the user\'s draft; polish it):')
+                out.append(indent(d['text'], '  | '))
+            else:
+                out.append('  DRAFT a GitHub comment for this thread.')
+            d['sent'] = True
     return '\n'.join(out)
 
 
@@ -675,7 +976,8 @@ def wait_for_round(spath, key, desc):
         if st.get('send_seq', 0) != st.get('ack_seq', 0):
             with locked_state(spath) as st:
                 st['ack_seq'] = st['send_seq']
-                only = None if st.pop('send_all', False) else set(st.pop('send_ids', []))
+                ids = st.pop('send_ids', [])  # always consumed, or a stale list would narrow a later round
+                only = None if st.pop('send_all', False) else set(ids)
                 out = report(st, desc, only)
                 if st.pop('finish_requested', False):  # consumed here, so a reopened review does not finish itself on the next Send
                     st['status'] = 'finished'
@@ -722,6 +1024,32 @@ def cmd_resolve(argv, on=True):
                 c.setdefault('replies', []).append({'id': new_id(st), 'text': note, 'created': time.time(), 'by': 'claude', 'sent': True, 'seen': False})
             c['resolved'] = on
     print(('Resolved' if on else 'Reopened') + ' ' + ' '.join('[%s]' % c for c in ids) + ('.' if not note else ' with a note.'))
+
+
+def cmd_draft(argv):
+    if len(argv) < 2:
+        die('Usage: clankback.py draft <id> <text>')
+    cid, text = argv[0], ' '.join(argv[1:]).strip()
+    with locked_state(find_state_for(cid)) as st:
+        st['comments'][cid]['draft'] = {'text': text, 'claude': text, 'created': time.time(), 'sent': True}
+    print('Drafted on [%s]. The user edits and posts it from the page.' % cid)
+
+
+def cmd_thread(argv):
+    """Print whole threads, for a writer that no longer has their earlier messages in context."""
+    if not argv:
+        die('Usage: clankback.py thread <id>...')
+    out = []
+    for cid in argv:
+        c = load_json(find_state_for(cid), {})['comments'][cid]
+        tags = ''.join(' (%s)' % k for k in ('resolved', 'outdated') if c.get(k))
+        out.append('[%s] %s %s%s%s' % (cid, c['file'], fmt_where(c), fmt_quote(c), tags))
+        if c.get('selected'):
+            out.append(indent(c['selected'], '  | '))
+        for m in [c] + c.get('replies', []):
+            who = 'Claude' if m.get('by') == 'claude' else '%s on GitHub' % gh_author(m) if gh_author(m) else 'user'
+            out.append(indent(who + ': ' + (m.get('text') or '').strip()))
+    print('\n'.join(out))
 
 
 def new_id(st):
@@ -804,6 +1132,10 @@ def main(argv):
         return cmd_resolve(argv[1:], False)
     if argv[:1] == ['show']:
         return cmd_show(argv[1:])
+    if argv[:1] == ['thread']:
+        return cmd_thread(argv[1:])
+    if argv[:1] == ['draft']:
+        return cmd_draft(argv[1:])
     if argv[:1] == ['ask']:
         return cmd_ask(argv[1:])
     opts, pos, paths = parse_args(argv)
@@ -847,7 +1179,8 @@ def main(argv):
             if p.get('key') != key:
                 notes.append('Also pending: %s in %s (%d comments). `--resume` reopens the most recent.' % (p.get('target'), p.get('cwd'), len(p.get('comments', {}))))
                 break
-    print('\n'.join(notes + [wait_for_round(spath, key, t['desc'])]))
+        print('\n'.join(['Opened %s at %s' % (t['desc'], info['url'])] + notes), flush=True)  # before blocking, so a background caller can announce it
+    print(wait_for_round(spath, key, t['desc']))
 
 
 if __name__ == '__main__':

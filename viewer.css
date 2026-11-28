@@ -37,6 +37,7 @@ textarea { width:100%; min-height:70px; font-family:var(--font); font-size:12.5p
 #target > span { direction:ltr; unicode-bidi:isolate; }
 #stats { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
 #stats .a { color:var(--add); } #stats .d { color:var(--del); }
+#gh { font-size:12px; } #gh a { color:var(--accent); text-decoration:none; } #gh a:hover { text-decoration:underline; } #gh .err { color:var(--del); margin-left:6px; }
 #banner { background:var(--accent-bg); border-bottom:1px solid var(--accent-line); padding:7px 14px; color:var(--fg); }
 
 /* sidebar */
@@ -130,6 +131,8 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .cmt { padding:8px 11px; border-bottom:1px solid var(--border); }
 .cmt:last-of-type { border-bottom:none; }
 .cmt.claude { background:var(--accent-bg); }
+.cmt.gh { box-shadow:inset 3px 0 0 var(--who); } .cmt.gh .meta .by, .thread.tab .by.gh { color:var(--who); }  /* other people on GitHub, one colour each */
+.cmt .meta a { color:var(--muted); } .cmt .meta a:hover { color:var(--accent); }
 .cmt .meta { color:var(--muted); font-size:11px; margin-bottom:4px; display:flex; gap:8px; align-items:center; }
 .cmt .meta .grow { flex:1; }
 .cmt .meta .by { font-weight:600; color:var(--fg); }
@@ -147,8 +150,13 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .thread.tab .txt code { background:none; border:none; padding:0; }
 .txt a { color:var(--accent); text-decoration:none; } .txt a:hover { text-decoration:underline; }
 .txt a.ref { font-family:var(--font); font-size:.92em; border-bottom:1px dotted; cursor:pointer; }
+.draft { padding:8px 11px; border-top:1px dashed var(--accent-line); background:var(--panel); }
+.draft .meta { color:var(--muted); font-size:11px; margin-bottom:4px; } .draft .meta .by { font-weight:600; color:var(--fg); } .draft .meta .q { color:var(--accent); }
+.draft .dtext { min-height:60px; margin-bottom:6px; }
+.draft .row { display:flex; gap:6px; align-items:center; } .draft .err { color:var(--del); font-size:11px; }
 .tfoot { display:flex; gap:6px; padding:8px 11px; border-top:1px solid var(--border); align-items:flex-start; }
-.tfoot textarea { min-height:34px; flex:1; }
+.tfoot { flex-wrap:wrap; }
+.tfoot textarea { min-height:34px; flex:1; min-width:220px; }
 .composer { max-width:820px; }
 .composer .rng { color:var(--muted); font-size:11px; margin-bottom:5px; }
 .composer .row { display:flex; gap:6px; align-items:flex-start; }
@@ -180,6 +188,12 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .sumitem .where .q { color:var(--accent); }
 .sumitem .txt { white-space:pre-wrap; word-break:break-word; margin-top:3px; }
 .sumitem.outdated:not(.resolved) { border-color:var(--warn-line); }
+.sumhead .tabs { display:flex; gap:4px; } .sumhead .tabs button { font-size:13px; padding:3px 9px; border-color:transparent; background:none; color:var(--muted); }
+.sumhead .tabs button.on { color:var(--fg); border-color:var(--border); background:var(--bg); }
+.sumitem.convo { cursor:default; } .sumitem.convo.gh { box-shadow:inset 3px 0 0 var(--who); } .sumitem.convo.gh .by { color:var(--who); }
+.sumitem.convo .by { font-weight:600; } .sumitem.convo .where a { color:var(--accent); text-decoration:none; } .sumitem.convo .where a:hover { text-decoration:underline; }
+.sumitem.convo .where .res { color:var(--add); } .sumitem.convo .where .chg { color:var(--del); }
+.sumitem.convo:hover { border-color:var(--border); }
 .sumfoot { padding:10px 12px; border-top:1px solid var(--border); display:flex; justify-content:space-between; }
 
 /* overlays */
@@ -199,4 +213,6 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .hl-k { color:#ff8b7e; } .hl-s { color:#a5d6ff; } .hl-c { color:var(--muted); font-style:italic; }
 .hl-n { color:#79c0ff; } .hl-f { color:#d2a8ff; } .hl-t { color:#ffb37a; }
 #foldAllBtn, #openBtn { margin-left:-4px; }
-.sumitem.tab { padding:3px 9px; } .sumitem.tab .txt { margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; color:var(--muted); }
+.sumitem.tab { display:flex; gap:6px; align-items:baseline; padding:2px 9px; margin-bottom:4px; white-space:nowrap; }
+.sumitem.tab .where { flex:none; } .sumitem.tab .txt { flex:1; min-width:0; margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; color:var(--muted); }
+.sumitem.tab .txt code { background:none; border:none; padding:0; }

@@ -16,6 +16,7 @@
     <span class="brand">clankback</span>
     <span id="target"></span>
     <span id="stats"></span>
+    <span id="gh" hidden></span>
     <span class="grow"></span>
     <button id="viewToggle" title="Switch between unified and split (v)">Split</button>
     <button id="foldBtn" title="Collapse every resolved thread to one line, or open them again">Collapse resolved</button><button id="foldAllBtn" class="small" title="Collapse every thread to one line, or open them all again">all</button>
@@ -34,7 +35,7 @@
     </aside>
     <main id="main"></main>
     <aside id="summary" hidden>
-      <div class="sumhead"><b>Comments</b><button id="closeSummary" title="Close (s)">×</button></div>
+      <div class="sumhead"><span class="tabs"><button id="tabComments" class="on">Comments</button><button id="tabConvo" title="The pull request's conversation on GitHub" hidden>Conversation <b id="convoCount">0</b></button></span><button id="closeSummary" title="Close (s)">×</button></div>
       <div id="sumlist"></div>
       <div class="sumfoot"><button id="sendBtn2" class="primary">Send to clanker</button><button id="clearBtn" title="Delete every comment in this review">Clear all</button></div>
     </aside>
