@@ -62,7 +62,7 @@ it is working on, and a thread flashes white when it answers or points at a line
 
 ## With a GitHub pull request
 
-When the branch has an open pull request on GitHub, or you review one with `/clankback 1234`, the page links to it and brings in its review threads every 30 seconds while the tab is open. Each GitHub author has their own colour. A new comment from someone with write access goes to Claude straight away; threads that were already there wait for your Send, and resolved ones are only shown.
+When the branch has an open pull request on GitHub, or you review one with `/clankback 1234`, the page links to it and brings in its review threads every 30 seconds while the tab is open. Each GitHub author has their own colour. A new comment from someone with write access goes to Claude straight away; threads that were already there wait for your Send, and resolved ones are only shown. Comments in the pull request's Conversation tab, and what each review said, are in the Conversation tab of the comment list (`s`); Claude does not get those yet.
 
 Claude's replies stay in the page. To answer on GitHub, click "Draft for GitHub" on a thread, write the comment or click "Ask clanker" to have it written or polished, then "Post to GitHub". It posts through `gh` as you: a reply when the thread is on GitHub, or a new line comment when you are reviewing the pull request itself (`/clankback 1234`), the only mode where the page's lines are GitHub's lines. Nothing is posted without that click.
 

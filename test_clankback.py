@@ -184,6 +184,23 @@ class GhMerge(unittest.TestCase):
         self.assertIn('> bob on GitHub: agree', out)
 
 
+class GhConversation(unittest.TestCase):
+    def test_comments_and_reviews_that_say_something_oldest_first(self):
+        user = lambda l, t='User': {'login': l, '__typename': t}
+        pr = {'comments': {'nodes': [
+                  {'databaseId': 1, 'author': user('alice'), 'body': 'retry slower?', 'createdAt': '2026-01-02T00:00:00Z', 'url': 'u1'},
+                  {'databaseId': 2, 'author': user('me'), 'body': 'done', 'createdAt': '2026-01-04T00:00:00Z', 'url': 'u2'}]},
+              'reviews': {'nodes': [
+                  {'databaseId': 3, 'author': user('bob'), 'body': '', 'state': 'APPROVED', 'submittedAt': '2026-01-03T00:00:00Z', 'url': 'u3'},
+                  {'databaseId': 4, 'author': user('bob'), 'body': '', 'state': 'COMMENTED', 'submittedAt': '2026-01-01T00:00:00Z', 'url': 'u4'},
+                  {'databaseId': 5, 'author': user('me'), 'body': 'draft', 'state': 'PENDING', 'submittedAt': '2026-01-01T00:00:00Z', 'url': 'u5'},
+                  {'databaseId': 6, 'author': user('ci', 'Bot'), 'body': 'lgtm', 'state': 'COMMENTED', 'submittedAt': '2026-01-05T00:00:00Z', 'url': 'u6'}]}}
+        out = cb.gh_conversation(pr, 'me')
+        self.assertEqual([(m['gh_id'], m['by'], m['kind']) for m in out],
+                         [(1, 'alice', 'comment'), (3, 'bob', 'review'), (2, 'you', 'comment'), (6, 'ci[bot]', 'review')])
+        self.assertEqual(out[1]['state'], 'APPROVED')
+
+
 class GhPost(unittest.TestCase):
     GH = {'repo': 'o/r', 'number': 7}
     FILES = [{'path': 'f.py', 'hunks': [{'hash': 'h1', 'lines': [

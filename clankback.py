@@ -408,6 +408,8 @@ def gh_json(args, cwd, stdin=None):
 
 GH_THREADS = '''query($owner:String!,$repo:String!,$n:Int!,$endCursor:String){viewer{login}
 repository(owner:$owner,name:$repo){pullRequest(number:$n){headRefOid
+comments(last:100){nodes{databaseId author{__typename login} body createdAt url}}
+reviews(last:100){nodes{databaseId author{__typename login} body state submittedAt url}}
 reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
 nodes{id isResolved isOutdated path line originalLine diffSide
 comments(first:100){nodes{databaseId author{__typename login} authorAssociation body createdAt diffHunk url}}}}}}}'''
@@ -416,6 +418,21 @@ GH_WRITERS = ('OWNER', 'MEMBER', 'COLLABORATOR')  # people with write access; on
 
 def gh_ts(s):
     return datetime.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+
+
+def gh_conversation(pr, login):
+    """The pull request's conversation: its comments and the reviews that say something, oldest first."""
+    out = []
+    for kind, conn in (('comment', 'comments'), ('review', 'reviews')):
+        for m in (pr.get(conn) or {}).get('nodes') or []:
+            # A review left with no text and no verdict only carries line comments, which the threads already show.
+            if kind == 'review' and (m['state'] == 'PENDING' or (m['state'] == 'COMMENTED' and not m['body'].strip())):
+                continue
+            a = m.get('author') or {'login': 'ghost', '__typename': 'User'}
+            out.append({'gh_id': m['databaseId'], 'kind': kind, 'state': m.get('state'), 'text': m['body'], 'url': m['url'],
+                        'by': 'you' if a['login'] == login else a['login'] + ('[bot]' if a['__typename'] == 'Bot' else ''),
+                        'created': gh_ts(m.get('createdAt') or m['submittedAt'])})
+    return sorted(out, key=lambda m: m['created'])
 
 
 def gh_merge(st, nodes, login, backlog):
@@ -477,7 +494,8 @@ def gh_sync(spath, gh, files):
         nodes = [n for p in pages for n in p['data']['repository']['pullRequest']['reviewThreads']['nodes']]
         wake = gh_merge(st, nodes, pages[0]['data']['viewer']['login'], backlog=not g.get('synced'))
         attach_comments(files, st['comments'])
-        g.update(login=pages[0]['data']['viewer']['login'], head=pr['headRefOid'], synced=time.time())
+        g.update(login=pages[0]['data']['viewer']['login'], head=pr['headRefOid'], synced=time.time(),
+                 conversation=gh_conversation(pr, pages[0]['data']['viewer']['login']))
         g.pop('error', None), g.pop('error_since', None)
         if wake:  # as if the user had clicked each thread's Send button
             st['send_seq'] = st.get('send_seq', 0) + 1

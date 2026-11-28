@@ -494,6 +494,11 @@ async function poll() {  // pick up replies and resolves made from the terminal
 }
 let focusSeq = D.focus && D.focus.seq, ghInfo = null;
 function showGh(g) {  // the linked pull request, and whether GitHub is answering
+  const had = ghInfo && ghInfo.conversation, ms = (g && g.conversation) || [];
+  if (had) { const ids = new Set(had.map(m => m.gh_id)), add = ms.filter(m => !ids.has(m.gh_id) && m.by !== 'you'); if (add.length) toast((add.length > 1 ? add.length + ' new comments' : 'New comment from ' + add[0].by) + ' in the pull request conversation.'); }
+  $('#tabConvo').hidden = !(g && g.number); $('#convoCount').textContent = ms.length;
+  if (!g || !g.number) { if (sumTab === 'convo') setSumTab('comments'); }
+  else if (!$('#summary').hidden && sumTab === 'convo') { ghInfo = g; buildSummary(); }
   ghInfo = g || null; const s = $('#gh'), parts = [];
   if (g && g.number) parts.push('<a href="' + esc(g.url) + '" target="_blank" rel="noopener" title="' + esc(g.repo) + '">' + (D.mode === 'pr' ? 'on GitHub' : 'PR #' + g.number) + '</a>');
   if (g && g.error) parts.push('<span class="err" title="' + esc(g.error) + '">GitHub error since ' + new Date(g.error_since * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) + '</span>');
@@ -626,8 +631,22 @@ window.addEventListener('resize', () => {
 });
 
 // ---------------------------------------------------------------- summary / finish
+let sumTab = 'comments';
+function setSumTab(t) { sumTab = t; $('#tabComments').classList.toggle('on', t === 'comments'); $('#tabConvo').classList.toggle('on', t === 'convo'); $('#clearBtn').hidden = t === 'convo'; buildSummary(); }
+const STATES = {APPROVED: ['approved', 'res'], CHANGES_REQUESTED: ['requested changes', 'chg'], DISMISSED: ['review dismissed', ''], COMMENTED: ['reviewed', '']};
+function buildConvo(list) {  // the pull request's conversation tab on GitHub, which has no line to sit on
+  const ms = (ghInfo && ghInfo.conversation) || [];
+  if (!ms.length) list.innerHTML = '<div class="note">No conversation on the pull request yet.</div>';
+  ms.forEach(m => {
+    const w = who(m), st = m.kind === 'review' ? STATES[m.state] || [m.state.toLowerCase(), ''] : null;
+    list.append(el('div', {class: 'sumitem convo' + w.cls, style: w.style},
+      '<div class="where"><span class="by">' + esc(w.name) + '</span>' + (st ? ' · <span class="' + st[1] + '">' + st[0] + '</span>' : '') + ' · ' + new Date(m.created * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) +
+      ' · <a href="' + esc(m.url) + '" target="_blank" rel="noopener">open</a></div>' + (m.text.trim() ? '<div class="txt">' + fmt(m.text) + '</div>' : '')));
+  });
+}
 function buildSummary() {
   const list = $('#sumlist'), top = list.scrollTop; list.innerHTML = '';
+  if (sumTab === 'convo') { buildConvo(list); list.scrollTop = top; return; }
   const cs = Object.values(comments).sort((a, b) => (fileIndex(a.file) - fileIndex(b.file)) || (a.line - b.line));
   if (!cs.length) list.innerHTML = '<div class="note">No comments yet. Hover a line and click +, or press c.</div>';
   let cur = null;
@@ -718,6 +737,7 @@ showGh(D.gh); addOrphans(); buildSidebar(); buildFiles(); refreshCount();
 $('#viewToggle').textContent = view === 'split' ? 'Unified' : 'Split';
 $('#viewToggle').onclick = toggleView; $('#sideToggle').onclick = toggleSide;
 if (D.prefs && D.prefs.sidebar === false) $('#side').classList.add('hidden');
+$('#tabComments').onclick = () => setSumTab('comments'); $('#tabConvo').onclick = () => setSumTab('convo');
 $('#summaryBtn').onclick = () => toggleSummary(); $('#closeSummary').onclick = () => toggleSummary(false);
 $('#claudeBtn').onclick = () => nextFromClaude(1); $('#openBtn').onclick = () => nextOpen(1); $('#foldBtn').onclick = () => foldAll(true); $('#foldAllBtn').onclick = () => foldAll(false);
 $('#finishBtn').onclick = finish; $('#sendBtn').onclick = send; $('#sendBtn2').onclick = send; $('#clearBtn').onclick = clearAll;

@@ -188,6 +188,12 @@ tr.crow:not(:has(.thread:not(.tab))) td { padding-top:3px !important; padding-bo
 .sumitem .where .q { color:var(--accent); }
 .sumitem .txt { white-space:pre-wrap; word-break:break-word; margin-top:3px; }
 .sumitem.outdated:not(.resolved) { border-color:var(--warn-line); }
+.sumhead .tabs { display:flex; gap:4px; } .sumhead .tabs button { font-size:13px; padding:3px 9px; border-color:transparent; background:none; color:var(--muted); }
+.sumhead .tabs button.on { color:var(--fg); border-color:var(--border); background:var(--bg); }
+.sumitem.convo { cursor:default; } .sumitem.convo.gh { box-shadow:inset 3px 0 0 var(--who); } .sumitem.convo.gh .by { color:var(--who); }
+.sumitem.convo .by { font-weight:600; } .sumitem.convo .where a { color:var(--accent); text-decoration:none; } .sumitem.convo .where a:hover { text-decoration:underline; }
+.sumitem.convo .where .res { color:var(--add); } .sumitem.convo .where .chg { color:var(--del); }
+.sumitem.convo:hover { border-color:var(--border); }
 .sumfoot { padding:10px 12px; border-top:1px solid var(--border); display:flex; justify-content:space-between; }
 
 /* overlays */
